@@ -110,7 +110,7 @@ process_iq(_, _, IQ) ->
 %% ------------------------------------------------------------------
 
 create_project(LSever, Project) ->
-    case ejabberd_odbc:sql_query(LSever, ["insert into folder(type, name, creator, owner, parent, project, status ",
+    case ejabberd_odbc:sql_query(LSever, ["insert into folder(type, name, creator, owner, parent, project, status)",
         " select type, name, creator, owner, parent, ", Project, ", status from folder where project='-1';"]) of
         {updated, 3} -> %% three ?TYPE_PUBLIC folder in project.
             ok;
@@ -425,11 +425,11 @@ recover_file(_, _, IQ) ->
 
 list_folder_ex(LServer, BareJID, Folder, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
-            Querys = case Folder of
-                         <<>> ->
+        true ->
+            Querys = if
+                         (Folder =:= <<>>) or (Folder =:= <<"-1">>) ->
                              folder_sql_query(LServer, ?TYPE_ROOT, BareJID, Folder, Project, false);
-                         _ ->
+                         true ->
                              case query_folder_info('type-owner', LServer, ["and id='", Folder, "';"]) of
                                  [{Type, Owner}] ->
                                      folder_sql_query(LServer, Type, BareJID, Folder, Project, Owner =:= BareJID);
@@ -471,7 +471,7 @@ list_folder_ex(LServer, BareJID, Folder, Project) ->
 
 add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             SBareJID = escape(BareJID),
             case query_folder_info('id-name-type-owner', LServer, ["and project='", Project, "' and id='", Parent, "';"]) of
                 [{ParentID, ParentName, ParentType, ParentOwner}] ->
@@ -502,6 +502,7 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                 not_exist ->
                     case Parent of
                         <<>> -> %% %% mean create folder in self, privilige is ok.
+                            %% TOFIX:check user folder is exist or not???
                             F = fun() ->
                                 {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('",
                                     ?TYPE_PERSON, "', '', '", SBareJID, "', '", SBareJID, "', '-1', '", Project, "');"]),
@@ -528,7 +529,7 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
 
 add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case check_add_file_uuid_valid(LServer, UUID) of
                 invalid -> {error, ?AFT_ERR_INVALID_FILE_ID};
                 valid ->
@@ -592,7 +593,7 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
 
 delete_folder_ex(LServer, BareJID, ID, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case query_self_parent_info('type-name#id-name-type-owner', LServer, ID, <<"folder">>) of
                 [{SelfType, SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
                     case delete_folder_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Project) of
@@ -643,7 +644,7 @@ delete_folder_ex(LServer, BareJID, ID, Project) ->
 
 delete_file_ex(LServer, BareJID, ID, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case query_self_parent_info('name#id-name-type-owner', LServer, ID, <<"file">>) of
                 [{SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
                     case delete_file_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Project) of
@@ -680,7 +681,7 @@ delete_file_ex(LServer, BareJID, ID, Project) ->
 
 rename_file_or_folder_ex(LServer, BareJID, ID, Name, Project, Type) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case query_self_parent_info('creator-name#id-name-type-owner', LServer, ID, Type) of
                 [{SelfUpdater, SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
                     IsAllowed = case Type  of
@@ -720,7 +721,7 @@ rename_file_or_folder_ex(LServer, BareJID, ID, Name, Project, Type) ->
 
 share_ex(LServer, BareJID, ID, Users, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case query_self_parent_info('type#id-type-owner', LServer, ID, <<"folder">>) of
                 [{SelfType, ParentID, ParentType, ParentOwner}] ->
                     case share_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, SelfType, Project) of
@@ -799,7 +800,7 @@ share_ex(LServer, BareJID, ID, Users, Project) ->
 
 move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case query_self_parent_info('name#id-name-type-owner', LServer, ID, Type) of
                 [{SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
             %case query_parent_info(id_name_type_owner, LServer, ID, Type) of
@@ -866,7 +867,7 @@ move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
 
 add_version_ex(LServer, BareJID, ID, UUID, Size, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case query_self_parent_info('id-name-version_count#id-type-name-owner', LServer, ID, <<"file">>) of
                 [{_SelfID, SelfName, VersionCount, ParentID, ParentType, ParentName, ParentOwner}] -> %% _SelfID, just only check file is exist or not, can check id is valied or not.
                     case add_version_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Project) of
@@ -909,7 +910,7 @@ add_version_ex(LServer, BareJID, ID, UUID, Size, Project) ->
 
 list_share_users_ex(LServer, BareJID, ID, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case query_folder_info('id-type-owner', LServer, ["and id='", ID, "';"]) of
                 [{_ID, Type, Owner}] ->
                     case list_share_users_privilige(LServer, BareJID, 0, 0, 0, ID, Type, Owner, Project) of
@@ -934,7 +935,7 @@ list_share_users_ex(LServer, BareJID, ID, Project) ->
 
 list_version_ex(LServer, BareJID, ID, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case query_self_parent_info('id-uuid-size_byte-creator-created_at#id-type-owner', LServer,  ID, <<"file">>) of
                 [{SelfID, SelfUUID, SelfSize, SelfCreator, SelfTime, ParentID, ParentType, ParentOwner}] ->
                     case list_version_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, 0, 0, Project) of
@@ -969,7 +970,7 @@ list_version_ex(LServer, BareJID, ID, Project) ->
 
 download_ex(LServer, BareJID, ID, UUID, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case query_self_parent_info('uuid-version_count#id-type-owner', LServer, ID, <<"file">>) of
                 {SelfUUID, Count, ParentID, ParentType, ParentOwner} ->
                     Valid = if
@@ -1020,7 +1021,7 @@ download_ex(LServer, BareJID, ID, UUID, Project) ->
 
 get_log_ex(LServer, BareJID, Before, After, Count, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             LogList =
             if
                 Before /= false ->
@@ -1042,7 +1043,7 @@ get_log_ex(LServer, BareJID, Before, After, Count, Project) ->
 
 get_trash_ex(LServer, BareJID, Before, After, Count, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             SelectPart = ["select file.id, file.name, file.location, file.deleted_at from file, folder ",
                 "where file.status='0' and file.folder=folder.id and ( folder.owner='", ejabberd_odbc:escape(BareJID), "' "],
             AdminOrNot = case ejabberd_odbc:sql_query(LServer, ["select admin from project where id='", Project, "';"]) of
@@ -1066,7 +1067,7 @@ get_trash_ex(LServer, BareJID, Before, After, Count, Project) ->
 
 clear_trash_ex(LServer, BareJID, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             DeleteVersionFile= ["delete file_version.* from file_version, file, folder",
                 "where folder.project='", Project, "' and file.status='0' and file.folder=folder.id and file_version.file=file.id and ( folder.owner='", escape(BareJID), "' "],
             DeleteFile = ["delete file.* from file, folder ",
@@ -1092,7 +1093,7 @@ clear_trash_ex(LServer, BareJID, Project) ->
 
 recover_file_ex(LServer, BareJID, ID, Name, DestFolder, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        {ok, true} ->
+        true ->
             case query_parent_info('id-type-name-owner-2', LServer, ID, <<"file">>) of
                 [{ParentID, ParentType, ParentName, ParentOwner}] ->
                     case query_folder_info('type-owner', LServer, ["and id='", DestFolder, "';"]) of
@@ -1683,7 +1684,8 @@ binary_to_integer(Bin, OpenFiler, MinValue, MaxValue) ->
                 V ->
                     if
                         ( V > MaxValue) -> MaxValue;
-                        (V < MinValue) -> MinValue
+                        (V < MinValue) -> MinValue;
+                        true -> V
                     end
             end;
         true ->

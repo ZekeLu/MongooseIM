@@ -395,8 +395,14 @@ CREATE TABLE organization_user (
 CREATE INDEX organization_user_index ON organization_user (organization, jid);
 CREATE INDEX organization_user_project_index ON organization_user(project);
 
--- template id < 100, project id >= 100.
--- insert a new template should specify id( 0 ~ 99 ), also set status='-1' will more clearly.
+CREATE TABLE template(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    name varchar(250) CHARACTER SET binary NOT NULL,
+    photo varchar(250) CHARACTER SET binary NOT NULL,
+    description varchar(250) CHARACTER SET binary,
+    job_tag varchar(30) NOT NULL
+) CHARACTER SET utf8;
+
 CREATE TABLE project(
     id int PRIMARY KEY NOT NULL auto_increment,
     name varchar(250) CHARACTER SET binary NOT NULL,
@@ -410,8 +416,6 @@ CREATE TABLE project(
     member_tag varchar(30) NOT NULL,
     link_tag varchar(30) NOT NULL
 ) CHARACTER SET utf8;
-
-CREATE INDEX project_status_index ON project(status);
 
 CREATE TABLE project_link (
     id1 int NOT NULL,
