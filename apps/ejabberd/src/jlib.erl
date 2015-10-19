@@ -71,6 +71,7 @@
 
 -export([aft_stanza_error/3,
          md5_hex/1,
+         md5_hex/2,
          generate_uuid/0,
          random_code/0,
          random_code/1]).
@@ -1124,22 +1125,33 @@ remove_delay_tags(#xmlel{children = Els} = Packet) ->
 
 %% -----------------------------------------
 %% md5 32byte.
+
+% return lowercase string.
 -spec md5_hex(Content :: list() | binary()) -> list().
 md5_hex(Content) ->
     Md5_bin = erlang:md5(Content),
     Md5_list = binary_to_list(Md5_bin),
-    lists:flatten(list_to_hex(Md5_list)).
+    lists:flatten(list_to_hex(Md5_list, false)).
 
-list_to_hex(L) ->
-    lists:map(fun(X) -> int_to_hex(X) end, L).
+-spec md5_hex(Content :: list() | binary(), boolean()) -> list().
+md5_hex(Content, IsCapital) ->
+    Md5_bin = erlang:md5(Content),
+    Md5_list = binary_to_list(Md5_bin),
+    lists:flatten(list_to_hex(Md5_list, IsCapital)).
 
-int_to_hex(N) when N < 256 ->
-    [hex(N div 16), hex(N rem 16)].
+list_to_hex(L, IsCapital) ->
+    lists:map(fun(X) -> int_to_hex(X, IsCapital) end, L).
 
-hex(N) when N < 10 ->
+int_to_hex(N, IsCapital) when N < 256 ->
+    [hex(N div 16, IsCapital), hex(N rem 16, IsCapital)].
+
+hex(N, _) when N < 10 ->
     $0+N;
-hex(N) when N >= 10, N < 16 ->
-    $a + (N-10).
+hex(N, IsCapital) when N >= 10, N < 16 ->
+    if
+        IsCapital =:= true -> $A + (N-10);
+        true -> $a + (N-10)
+    end.
 
 
 %% -----------------------------------------

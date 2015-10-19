@@ -233,7 +233,7 @@ process_unauthenticated_iq(Server,
         {error, bad_request} ->
             IQ#iq{type = error, sub_el = [SubEl, ?ERR_BAD_REQUEST]};
         {ok, <<"get_code">>} ->
-            case get_code(get_tag_cdata(PhoneTag), 60, 20, <<"code_">>) of
+            case get_code(get_tag_cdata(PhoneTag), 600, 60, <<"code_">>) of
                 {ok, Code} ->
                     Phone = get_tag_cdata(PhoneTag),
                     IQ#iq{type = result,
@@ -499,7 +499,7 @@ change_phone(User, Server, Phone, Token) ->
                                     true -> {error, ?AFT_ERR_PHONE_EXIST}
                                 end;
                             not_exist ->
-                                get_code(Phone, 60, 20, <<"change_code_">>),
+                                get_code(Phone, 600, 60, <<"change_code_">>),
                                 {ok, Phone};
                             _ ->
                                 {error, ?AFT_ERR_PHONE_EXIST}
@@ -534,6 +534,98 @@ verify_change_phone(User, Server, Phone, Code) ->
 %%% help functions. called by Internal functions.
 %%%===================================================================
 
+%% %%  SMS begin.
+%% %% make sure inet and ssl is started, ejabberd start inet and ssl when started.
+%% %% if test sms function,
+%% %% 1. uncomment this code;
+%% %% 2. change 'AccountID', 'Token', 'AppId', 'URLPrefix' in sendcode/4;
+%% %% 3. add a invoker parameter 'MessageTemplateID' in get_code/5.
+%%
+%% -spec now_to_local_string(erlang:timestamp()) -> string().
+%% now_to_local_string({MegaSecs, Secs, MicroSecs}) ->
+%%     {{Year, Month, Day}, {Hour, Minute, Second}} =
+%%         calendar:now_to_local_time({MegaSecs, Secs, MicroSecs}),
+%%     lists:flatten(
+%%         io_lib:format("~4..0w~2..0w~2..0w~2..0w~2..0w~2..0w",
+%%             [Year, Month, Day, Hour, Minute, Second])).
+%%
+%% %% Error code: http://docs.yuntongxun.com/
+%% parse_sms_statuscode(Code) ->
+%%     IntCode = list_to_integer(Code),
+%%     if
+%%         IntCode =:= 0 ->
+%%             ok;
+%%         (IntCode =:= 112300) or (IntCode =:= 112306) or (IntCode =:= 112319) ->
+%%             {error, ?AFT_ERR_BAD_PHONE_FORMAT};
+%%         true ->
+%%             ?ERROR_MSG("[ERROR]:SMS error, Reason=~p~n", [Code]),
+%%             ok
+%%     end.
+%%
+%%
+%% send_code(Phone, MessageTemplateID, Code, SurvivalTime) ->
+%%     AccountID = "aaf98f89505b6c08015060e3184805cb",
+%%     Token = "d37288729ab04a7187633bb5b612b0e9",
+%%     AppID = <<"aaf98f89505b6c08015060e3b19c05cd">>,
+%%     URLPrefix = "https://sandboxapp.cloopen.com:8883",
+%%
+%%     NowString = now_to_local_string(erlang:now()),
+%%     SigParameter = jlib:md5_hex(AccountID ++ Token ++ NowString, true),
+%%     Authorization = jlib:encode_base64(AccountID ++ ":" ++ NowString),
+%%
+%%     URL = URLPrefix ++ "/2013-12-26/Accounts/" ++ AccountID ++ "/SMS/TemplateSMS?sig=" ++ SigParameter,
+%%     Header = [{"Accept","application/json"}, {"Authorization", Authorization}],
+%%     Body =  <<"{\"to\":\"", Phone/binary, "\",\"appId\":\"", AppID/binary,
+%%         "\",\"templateId\":\"", MessageTemplateID/binary,"\",\"datas\":[\"", Code/binary,"\",\"", SurvivalTime/binary,"\"]}">>,
+%%
+%%     Result = httpc:request(post, {URL, Header, "application/json;charset=utf-8", Body}, [], []),
+%%     case Result of
+%%         {ok, {{_, 200, "OK"}}, _ResponseHeader, ResponseBody} ->
+%%             StatusCode = string:substr(ResponseBody, string:str(ResponseBody, "statusCode") + 13, 6),
+%%              parse_sms_statuscode(StatusCode);
+%%         Error ->
+%%             ?ERROR_MSG("[ERROR]:request to sms service failed, reason=~p~n",[Error]),
+%%             ok
+%%     end.
+%%
+%% %% SurvicalTime must equal or big then Intelval.
+%% -spec get_code(binary(), integer(), integer(), binary(), binary()) -> {error, _} | {ok, _}.
+%% get_code(Phone, SurvivalTime, Interval, Prefix, MessageTemplateID) ->
+%%     case check_phone_number_valid(Phone) of
+%%         true ->
+%%             Code = list_to_binary(jlib:random_code()),
+%%             Key = <<Prefix/binary, Phone/binary>>,
+%%             TTL = ejabberd_redis:cmd(["TTL", [Key]]),
+%%             Allowed = if
+%%                           (TTL =:= -1) or (TTL =:= -2) -> true;
+%%                           true ->
+%%                               if
+%%                                   SurvivalTime > Interval ->
+%%                                       if TTL > (SurvivalTime - Interval) -> false; true -> true end;
+%%                                   true ->
+%%                                       false
+%%                               end
+%%                       end,
+%%
+%%             case Allowed of
+%%                 true ->
+%%                     ejabberd_redis:cmd([["DEL", [Key]],
+%%                         ["APPEND", [Key], [Code]],
+%%                         ["EXPIRE", [Key], SurvivalTime]]),
+%%
+%%                     case send_code(Phone, MessageTemplateID, Code, SurvivalTime) of
+%%                         ok -> {ok, Code};
+%%                         Error -> Error
+%%                     end;
+%%                 false ->
+%%                     {error, ?AFT_ERR_GET_CODE_SO_QUICKLY}
+%%             end;
+%%         false ->
+%%             {error, ?AFT_ERR_BAD_PHONE_FORMAT}
+%%     end.
+%% %% SMS end.
+
+%% generate a random integer string.
 -spec get_code(binary(), integer(), integer(), binary()) ->
                       {error, _} | {ok, _}.
 get_code(Phone, SurvivalTime, Interval, Prefix) ->
