@@ -492,7 +492,7 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                                             nothing_to_do
                                     end,
                                     FolderJson = build_folder_result(InsertFolder),
-                                    {ok, <<"{\"parent\":\"", ParentID/binary, "\", \"folder\":", FolderJson/binary, "}">>};
+                                    {ok, <<"[{\"parent\":\"", ParentID/binary, "\", \"folder\":", FolderJson/binary, "}]">>};
                                 _ ->
                                     {error, ?AFT_ERR_DATABASE}
                             end;
@@ -506,16 +506,19 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                             F = fun() ->
                                 {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('",
                                     ?TYPE_PERSON, "', '', '", SBareJID, "', '", SBareJID, "', '-1', '", Project, "');"]),
-                                {selected, _, [{ID1}]} = ejabberd_odbc:sql_query_t(["select last_insert_id();"]),
+                                {selected, _, [{ID1, _Type, _Name, _Create, _Owner, _Create_at}]} =
+                                    {selected, _, ParentFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
                                 {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('",
                                     ?TYPE_PER_PUBLIC, "', '", escape(Name), "', '", SBareJID, "', '", SBareJID, "', '", ID1, "', '", Project, "');"]),
                                 {selected, _, InsertFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
-                                {ok, ID1, InsertFolder}
+                                {ok, ID1, ParentFolder, InsertFolder}
                             end,
                             case ejabberd_odbc:sql_transaction(LServer, F) of
-                                {atomic, {ok, ParentID, InsertFolder}} ->
+                                {atomic, {ok, ParentID, ParentFolder, InsertFolder}} ->
+                                    ParentFolderJson = build_folder_result(ParentFolder),
                                     FolderJson = build_folder_result(InsertFolder),
-                                    {ok, <<"{\"parent\":\"", ParentID/binary, "\", \"folder\":", FolderJson/binary, "}">>};
+                                    {ok, <<"[{\"parent\":\"-1\", \"folder\":", ParentFolderJson/binary,
+                                        "}, {\"parent\":\"", ParentID/binary, "\", \"folder\":", FolderJson/binary, "}]">>};
                                 _ ->
                                     {error, ?AFT_ERR_DATABASE}
                             end;
@@ -556,7 +559,7 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                                     nothing_to_do
                                             end,
                                             FileJson = build_file_result(InsertFile),
-                                            {ok, <<"{\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}">>};
+                                            {ok, <<"[{\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}]">>};
                                         _ ->
                                             {error, ?AFT_ERR_DATABASE}
                                     end;
@@ -569,16 +572,19 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                     F = fun() ->
                                         {updated, 1} = ejabberd_odbc:sql_query_t( ["insert into folder(type, name, creator, owner, parent, project) values('",
                                             ?TYPE_PERSON, "', '', '", SBareJID, "', '", SBareJID, "', '-1', '", Project, "');"]),
-                                        {selected, _, [{ID1}]} = ejabberd_odbc:sql_query_t(["select last_insert_id();"]),
+                                        {selected, _, [{ID1, _Type, _Name, _Create, _Owner, _Create_at}]} =
+                                            {selected, _, ParentFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
                                         {updated, 1} = ejabberd_odbc:sql_query_t(["insert into file(uuid, name, size_byte, creator, version_count, folder) values('", ejabberd_odbc:escape(UUID), "', '",
                                             ejabberd_odbc:escape(Name), "', '", Size, "', '", ejabberd_odbc:escape(BareJID), "', '1', '", ID1, "');"]),
                                         {selected, _, InsertFile} = ejabberd_odbc:sql_query_t([query_file_column(normal), "and id=last_insert_id();"]),
-                                        {ok, ID1, InsertFile}
+                                        {ok, ID1, ParentFolder, InsertFile}
                                     end,
                                     case ejabberd_odbc:sql_transaction(LServer, F) of
-                                        {atomic, {ok, ParentID, InsertFile}} ->
+                                        {atomic, {ok, ParentID, ParentFolder, InsertFile}} ->
+                                            ParentFolderJson = build_folder_result(ParentFolder),
                                             FileJson = build_file_result(InsertFile),
-                                            {ok, <<"{\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}">>};
+                                            {ok, <<"[{\"parent\":\"-1\", \"folder\":", ParentFolderJson/binary,
+                                                "}, {\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}]">>};
                                         _ ->
                                             {error, ?AFT_ERR_DATABASE}
                                     end;
