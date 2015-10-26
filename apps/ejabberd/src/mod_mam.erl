@@ -347,7 +347,7 @@ filter_packet({From, To=#jid{luser=LUser, lserver=LServer}, Packet}) ->
     ?DEBUG("Receive packet~n    from ~p ~n    to ~p~n    packet ~p.",
               [From, To, Packet]),
     Packet2 =
-    case ejabberd_users:is_user_exists(LUser, LServer) of
+    case lists:member(true,[ejabberd_users:is_user_exists(LUser, LServer), is_aft_message(Packet)]) of
     false -> Packet;
     true ->
         case handle_package(incoming, true, To, From, From, Packet) of
@@ -368,6 +368,17 @@ remove_user(User, Server) ->
 
 %% ----------------------------------------------------------------------
 %% Internal functions
+
+-spec is_aft_message(Packet :: jlib:xmlel()) -> true | false.
+is_aft_message(Packet) ->
+    case xml:get_subtag(Packet, <<"info">>) of
+        false -> false;
+        InfoTag ->
+            case xml:get_tag_attr_s(<<"xmlns">>, InfoTag) of
+                <<"aft:message">> -> true;
+                _ -> false
+            end
+    end.
 
 -spec server_host(ejabberd:jid()) -> ejabberd:lserver().
 server_host(#jid{lserver=LServer}) ->

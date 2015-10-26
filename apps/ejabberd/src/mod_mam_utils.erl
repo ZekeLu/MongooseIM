@@ -264,12 +264,21 @@ is_valid_message_type(_, _, <<"error">>)     -> false;
 is_valid_message_type(_, _, _)               -> false.
 
 is_valid_message(_Mod, _Dir, Packet) ->
-    Body     = xml:get_subtag(Packet, <<"body">>),
-    %% Used in MAM
-    Result   = xml:get_subtag(Packet, <<"result">>),
-    %% Used in mod_offline
-    Delay    = xml:get_subtag(Packet, <<"delay">>),
-    is_valid_message_children(Body, Result, Delay).
+    case xml:get_subtag(Packet, <<"info">>) of
+        false ->
+            Body     = xml:get_subtag(Packet, <<"body">>),
+            %% Used in MAM
+            Result   = xml:get_subtag(Packet, <<"result">>),
+            %% Used in mod_offline
+            Delay    = xml:get_subtag(Packet, <<"delay">>),
+            is_valid_message_children(Body, Result, Delay);
+        InfoTag ->
+            case xml:get_tag_attr_s(<<"xmlns">>, InfoTag) of
+                <<"aft:message">> -> true;
+                _ -> false
+            end
+    end.
+
 
 %% Forwarded by MAM message or just a message without body
 is_valid_message_children(false, _,     _    ) -> false;
