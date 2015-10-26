@@ -28,7 +28,7 @@ otp_release:
         - 17.1
 env:
         global:
-                - TARBALL_NAME=${TRAVIS_BUILD_NUMBER}-${TRAVIS_PULL_REQUEST/false/$TRAVIS_BRANCH}-${TRAVIS_COMMIT:0:6}.tar.gz
+                - TARBALL_NAME=mongooseim_${TRAVIS_COMMIT:0:6}.tar.gz
                 - TEST_CONFIG=odbc_redis
                 - DB=mysql
         matrix:
