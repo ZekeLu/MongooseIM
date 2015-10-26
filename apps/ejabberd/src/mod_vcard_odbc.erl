@@ -156,7 +156,6 @@ set_vcard(User, VHost, VCard, VCardTag, VCardSearch) ->
     ejabberd_hooks:run(vcard_set, VHost, [LUser, VHost, VCard]),
     ok.
 
-
 get_vcard_ex(UserName, Server) ->
     case get_vcard(UserName, Server) of
         {ok, [VCARD]} ->

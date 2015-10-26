@@ -72,6 +72,7 @@ start(normal, _Args) ->
     ejabberd_admin:start(),
 
     ssl:start(),
+    mod_mms_s3:start(),
     ?INFO_MSG("ejabberd ~s is started in the node ~p", [?VERSION, node()]),
     Sup;
 start(_, _) ->

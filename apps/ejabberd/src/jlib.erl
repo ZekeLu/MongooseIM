@@ -1043,17 +1043,17 @@ stanza_error(Code, Type, Condition) ->
     , Condition :: binary() | undefined) -> #xmlel{}.
 aft_stanza_error(Code, Type, Condition) ->
     #xmlel{ name = <<"error">>
-        , attrs = [{<<"code">>, <<"500">>}, {<<"type">>, Type}]
-        , children = [ #xmlel{ name = Condition
-            , attrs = [{<<"xmlns">>, ?NS_STANZAS}]
+          , attrs = [{<<"code">>, <<"500">>}, {<<"type">>, Type}]
+          , children = [ #xmlel{ name = Condition
+                               , attrs = [{<<"xmlns">>, ?NS_STANZAS}]
 
-        },
-            #xmlel{ name = <<"code">>
-                , attrs = [{<<"xmlns">>, ?NS_AFT_ERROR}]
-                , children = [ #xmlcdata{ content = Code}]
-            }
-        ]
-    }.
+                                },
+                         #xmlel{ name = <<"code">>
+                               , attrs = [{<<"xmlns">>, ?NS_AFT_ERROR}]
+                               , children = [ #xmlcdata{ content = Code}]
+                               }
+                       ]
+          }.
 
 -spec stanza_errort( Code :: binary()
                    , Type :: binary()

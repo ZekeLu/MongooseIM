@@ -61,30 +61,13 @@ send_notification(From, To, Packet) ->
             tojid = ToJid
         } = Message ->
             PushContent = make_push_message(Message),
-
-            case odbc_push_service:get_tokens_by_jid(LServer, ToJid) of
-                {ok, [_ | _] = PushTokenList} ->
-                    lists:foreach(fun(PushToken) ->
-                        send_notification(PushToken, PushContent)
-                    end, PushTokenList);
-                _ ->
-                    none
-            end
+            ejabberd_hooks:run(push_service_hook,[LServer,ToJid,PushContent])
     end.
 
 
 %% ========================================================
-%% Internal functions
+%% helpers
 %% ========================================================
-
--spec send_notification(#push_token{}, Content :: binary()) -> {ok | not_implement}.
-send_notification(#push_token{type = PushType, token = DeviceToken}, Content) ->
-    case PushType of
-        <<"1">> -> %% iOS push notification
-            mod_push_service_ios:send(DeviceToken, Content);
-        _ -> %% Android or other
-            not_implemented
-    end.
 
 -spec extract_message(
     From :: jlib:jid(),

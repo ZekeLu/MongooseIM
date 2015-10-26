@@ -326,8 +326,15 @@ CREATE TABLE groupinfo (
     groupid int PRIMARY KEY NOT NULL auto_increment,
     name varchar(250) CHARACTER SET binary,
     owner varchar(250) CHARACTER SET binary NOT NULL,
-    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+    type tinyint NOT NULL default 1,  -- 1 - noraml group; 2 - task; 3 - event; 4 - file transfer
+    status tinyint NOT NULL default 1, -- 1 - start; 2 - end;
+    project int NULL,
+    avatar varchar(250) CHARACTER SET binary,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    end_at timestamp
 ) CHARACTER SET utf8;
+
+CREATE INDEX groupinfo_project_index ON groupinfo (project);
 
 CREATE TABLE groupuser (
     id int PRIMARY KEY NOT NULL auto_increment,
@@ -357,3 +364,159 @@ CREATE TABLE push_service (
 CREATE INDEX push_jid_index ON push_service (jid);
 CREATE UNIQUE INDEX push_token_index ON push_service (token);
 -- push service end
+
+-- mms_file begin
+CREATE TABLE mms_file (
+    id varchar(64) PRIMARY KEY,
+    uid varchar(64) NOT NULL,
+    filename varchar(250) CHARACTER SET binary NOT NULL,
+    type tinyint unsigned NOT NULL default 1, -- file_type: 1. avatar, 2. message, 3. project library
+    owner varchar(250) CHARACTER SET binary NOT NULL,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+) CHARACTER SET utf8;
+-- mms_file end
+
+-- organization begin
+CREATE TABLE organization (
+    id int PRIMARY KEY NOT NULL auto_increment,
+    name varchar(250) CHARACTER SET binary NOT NULL,
+    lft int NOT NULL,
+    rgt int NOT NULL,
+    depth int NOT NULL,
+    department varchar(250) CHARACTER SET binary,
+    project int NOT NULL
+) CHARACTER SET utf8;
+CREATE INDEX organization_tree_index ON organization (project);
+
+CREATE TABLE organization_user (
+    id int PRIMARY KEY NOT NULL auto_increment,
+    organization int NOT NULL,
+    jid varchar(250) CHARACTER SET binary NOT NULL,
+    project int NOT NULL
+) CHARACTER SET utf8;
+CREATE INDEX organization_user_index ON organization_user (organization, jid);
+CREATE INDEX organization_user_project_index ON organization_user(project);
+
+CREATE TABLE template(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    name varchar(250) CHARACTER SET binary NOT NULL,
+    photo varchar(250) CHARACTER SET binary NOT NULL,
+    description varchar(250) CHARACTER SET binary,
+    job_tag varchar(30) NOT NULL
+) CHARACTER SET utf8;
+
+CREATE TABLE project(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    name varchar(250) CHARACTER SET binary NOT NULL,
+    photo varchar(250) CHARACTER SET binary NOT NULL,
+    description varchar(250) CHARACTER SET binary,
+    status tinyint NOT NULL default 1,
+    admin varchar(250) CHARACTER SET binary NOT NULL,
+    start_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    end_at timestamp,
+    job_tag varchar(30) NOT NULL,
+    member_tag varchar(30) NOT NULL,
+    link_tag varchar(30) NOT NULL
+) CHARACTER SET utf8;
+
+CREATE TABLE project_link (
+    id1 int NOT NULL,
+    id2 int NOT NULL,
+    PRIMARY KEY (id1, id2)
+) CHARACTER SET utf8;
+
+CREATE INDEX project_link_id2_index ON project_link(id2);
+
+
+-- organization end
+
+-- favorite begin
+CREATE TABLE favorite_change(
+    jid varchar(250) PRIMARY KEY,
+    tag char(25) NOT NULL
+) CHARACTER SET utf8;
+
+CREATE TABLE favorite_tag(
+    id int NOT NULL auto_increment,
+    fid int NOT NULL,
+    tag varchar(25) CHARACTER SET binary NOT NULL,
+    PRIMARY KEY (id, fid)
+) CHARACTER SET utf8;
+
+CREATE INDEX i_fid ON favorite_tag(fid);
+
+CREATE TABLE favorite(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    jid varchar(250) CHARACTER SET binary NOT NULL,
+    from_jid varchar(250) CHARACTER SET binary NOT NULL,
+    title varchar(250) CHARACTER SET binary NOT NULL,
+    type int NOT NULL default 0,
+    content blob NOT NULL,
+    tag char(25) NOT NULL
+) CHARACTER SET utf8;
+CREATE INDEX i_jid ON favorite(jid);
+-- favorite end
+
+-- project library begin.
+CREATE TABLE file(
+    id int PRIMARY KEY auto_increment,
+    uuid varchar(64) CHARACTER SET binary NOT NULL,
+    name varchar(250) CHARACTER SET binary NOT NULL,
+    size_byte bigint NOT NULL,
+    creator varchar(250) CHARACTER SET binary NOT NULL,
+    version_count int NOT NULL DEFAULT 1,
+    folder int NOT NULL,
+    status boolean NOT NULL DEFAULT true,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    location varchar(250) CHARACTER SET binary,
+    deleted_at BIGINT UNSIGNED NOT NULL default 0
+) CHARACTER SET utf8;
+
+CREATE INDEX i_file_folder ON file(folder);
+
+CREATE TABLE folder(
+    id int PRIMARY KEY auto_increment,
+    type tinyint NOT NULL default 0,
+    name varchar(250) CHARACTER SET binary NOT NULL DEFAULT "",
+    creator varchar(250) CHARACTER SET binary NOT NULL DEFAULT "admin",
+    owner varchar(250) CHARACTER SET binary NOT NULL DEFAULT "admin",
+    parent int NOT NULL DEFAULT -1,
+    project int NOT NULL,
+    status boolean NOT NULL DEFAULT true,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    location varchar(250) CHARACTER SET binary,
+    deleted_at BIGINT UNSIGNED NOT NULL default 0
+) CHARACTER SET utf8;
+
+CREATE INDEX i_folder_parent ON folder(parent);
+CREATE INDEX i_folder_project ON folder(project);
+
+CREATE TABLE share_users(
+    folder int NOT NULL,
+    userjid varchar(250) CHARACTER SET binary NOT NULL,
+    PRIMARY KEY (folder, userjid)
+) CHARACTER SET utf8;
+
+CREATE TABLE file_version(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    file int NOT NULL,
+    uuid varchar(250) CHARACTER SET binary NOT NULL,
+    creator varchar(250) CHARACTER SET binary NOT NULL,
+    size_byte bigint NOT NULL,
+    created_at timestamp NOT NULL
+) CHARACTER SET utf8;
+
+CREATE INDEX i_file_version_file ON file_version(file);
+
+CREATE TABLE library_log(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    userjid varchar(250) CHARACTER SET binary NOT NULL,
+    operation tinyint NOT NULL DEFAULT 0,
+    text varchar(250) CHARACTER SET binary NOT NULL,
+    path varchar(250) CHARACTER SET binary,
+    project int NOT NULL,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+) CHARACTER SET utf8;
+
+CREATE INDEX i_file_log_project ON library_log(project);
+-- project library end.

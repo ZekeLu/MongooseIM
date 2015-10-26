@@ -110,6 +110,8 @@
 -define(NS_SEARCH_PHONE, <<"aft:search-phone">>).
 -define(NS_AFT_ERROR,    <<"aft:error">>).
 -define(NS_AFT_INFORMATION, <<"aft:information">>).
+-define(NS_AFT_PROJECT, <<"aft:project">>).
+-define(NS_AFT_LIBRARY,  <<"aft:library">>).
 
 -define(ERR_BAD_REQUEST,
         jlib:stanza_error(<<"400">>,<<"modify">>,<<"bad-request">>)).
@@ -313,7 +315,6 @@
 %-define(SERRT_(Lang, Text),
 %       jlib:stream_errort(<<"">>, Lang, Text)).
 
-
 %%--------------------------------------------------------------------
 %% system error: 10000 ~ 10999
 -define(AFT_ERR_DATABASE,
@@ -348,8 +349,47 @@
     jlib:aft_stanza_error(<<"11009">>,<<"modify">>,<<"undefined-condition">>)).
 -define(AFT_ERR_BAD_PASSWORD,
     jlib:aft_stanza_error(<<"11010">>,<<"modify">>,<<"undefined-condition">>)).
-%%--------------------------------------------------------------------
 
+%% project error: 13000 ~ 13999
+-define(AFT_ERR_INVALID_TEMPLATE,
+    jlib:aft_stanza_error(<<"13000">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_PROJECT_NAME_EXIST,
+    jlib:aft_stanza_error(<<"13001">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_INVALID_JOB,
+    jlib:aft_stanza_error(<<"13002">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_MEMBER_NOT_EXIST,
+    jlib:aft_stanza_error(<<"13003">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_PROJECT_NOT_EXIST,
+    jlib:aft_stanza_error(<<"13004">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_ALLREADY_SUBSCRIBED,
+    jlib:aft_stanza_error(<<"13005">>,<<"cancel">>,<<"undefined-condition">>)).
+-define(AFT_ERR_TARGET_NO_SUBSCRIBE_REQUEST,
+    jlib:aft_stanza_error(<<"13006">>,<<"cancel">>,<<"undefined-condition">>)).
+-define(AFT_ERR_NO_SUBSCRIBED,
+    jlib:aft_stanza_error(<<"13007">>,<<"cancel">>,<<"undefined-condition">>)).
+-define(AFT_ERR_EMPTY_MEMBER,
+    jlib:aft_stanza_error(<<"13008">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_PARENT_NOT_EXIST,
+    jlib:aft_stanza_error(<<"13009">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_ALLREADY_FINISHED,
+    jlib:aft_stanza_error(<<"13010">>,<<"cancel">>,<<"undefined-condition">>)).
+-define(AFT_ERR_MEMBER_INVALID,
+    jlib:aft_stanza_error(<<"13011">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_JOIN_PAIR_TASK,
+    jlib:aft_stanza_error(<<"13012">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_DELETE_ADMIN,
+    jlib:aft_stanza_error(<<"13013">>,<<"modify">>,<<"undefined-condition">>)).
+
+%% project error: 16000 ~ 16999
+-define(AFT_ERR_FILE_NOT_EXIST,
+    jlib:aft_stanza_error(<<"16000">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_FOLDER_NOT_EXIST,
+    jlib:aft_stanza_error(<<"16001">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_FILE_EXIST,
+    jlib:aft_stanza_error(<<"16002">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_INVALID_FILE_ID,
+    jlib:aft_stanza_error(<<"16003">>,<<"modify">>,<<"undefined-condition">>)).
+%%--------------------------------------------------------------------
 
 -record(jid, {user = <<>>      :: ejabberd:user(),
               server = <<>>    :: ejabberd:server(),
