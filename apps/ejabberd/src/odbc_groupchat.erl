@@ -99,7 +99,7 @@ create_group(LServer, Group) ->
 
 add_members(LServer, GroupId, MembersList) ->
     F = fun() ->
-        Allow = case ejabberd_odbc:sql_query_t([<<"select type,project from groupinfo where id = ">>, GroupId, ";"]) of
+        Allow = case ejabberd_odbc:sql_query_t([<<"select type,project from groupinfo where groupid = ">>, GroupId, ";"]) of
                     {selected, _, []} ->
                         error;
                     {selected, _, [{?TASK_GROUP, null}]} ->
@@ -129,6 +129,7 @@ add_members(LServer, GroupId, MembersList) ->
         {atomic, {selected, [<<"jid">>, <<"nickname">>], Rs}} ->
             {ok, Rs};
         Error ->
+            io:format("add members error:~p~n",[Error]),
             {error, Error}
     end.
 
