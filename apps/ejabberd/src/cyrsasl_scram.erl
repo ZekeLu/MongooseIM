@@ -41,8 +41,7 @@
          stored_key = <<"">>   :: binary(),
          server_key = <<"">>   :: binary(),
          username = <<"">>     :: binary(),
-         get_password          :: fun(),
-         check_password        :: fun(),
+         get_password          :: cyrsasl:get_password_fun(),
          auth_message = <<"">> :: binary(),
          client_nonce = <<"">> :: binary(),
          server_nonce = <<"">> :: binary()}).
@@ -63,11 +62,11 @@ mech_new(_Host, GetPassword, _CheckPassword,
 
 mech_step(#state{step = 2} = State, ClientIn) ->
     case re:split(ClientIn, <<",">>, [{return, binary}]) of
-        [_CBind, _AuthorizationIdentity, _UserNameAttribute, _ClientNonceAttribute, ExtensionAttribute | _]
-          when ExtensionAttribute /= [] ->
+        [_CBind, _AuthorizationIdentity, _UserNameAttribute, _ClientNonceAttribute, _TypeExtensionAttribute | MoreExtensionAttributes]
+            when MoreExtensionAttributes /= [] ->
             {error, <<"protocol-error-extension-not-supported">>};
-        [CBind, _AuthorizationIdentity, UserNameAttribute, ClientNonceAttribute | _]
-          when (CBind == <<"y">>) or (CBind == <<"n">>) ->
+        [CBind, _AuthorizationIdentity, UserNameAttribute, ClientNonceAttribute | ExtensionAttributes]
+            when (CBind == <<"y">>) or (CBind == <<"n">>) ->
             case parse_attribute(UserNameAttribute) of
                 {error, Reason} -> {error, Reason};
                 {_, EscapedUserName} ->
@@ -76,16 +75,29 @@ mech_step(#state{step = 2} = State, ClientIn) ->
                         UserName ->
                             case parse_attribute(ClientNonceAttribute) of
                                 {$r, ClientNonce} ->
-                                    case (State#state.get_password)(UserName) of
+                                    UserIdentity = case ExtensionAttributes of
+                                               [] -> UserName;
+                                               [TypeExtensionAttribute|_] ->
+                                                   case parse_attribute(TypeExtensionAttribute) of
+                                                       {$t, <<"1">>} -> {phone, UserName};
+                                                       {$t, <<"2">>} -> {email, UserName};
+                                                       _ -> UserName
+                                                   end
+                                           end,
+                                    case (State#state.get_password)(UserIdentity) of
                                         {false, _} -> {error, <<"not-authorized">>, UserName};
                                         {Ret, _AuthModule} ->
+                                            {RetrievedUsername, Password} = case Ret of
+                                                                                {U, P} -> {U, P};
+                                                                                _ -> {UserName, Ret}
+                                                                            end,
                                             {StoredKey, ServerKey, Salt, IterationCount} =
-                                            if is_tuple(Ret) -> Ret;
+                                            if is_tuple(Password) -> Password;
                                                true ->
                                                    TempSalt =
                                                    crypto:rand_bytes(?SALT_LENGTH),
                                                    SaltedPassword =
-                                                   scram:salted_password(Ret,
+                                                   scram:salted_password(Password,
                                                                          TempSalt,
                                                                          scram:iterations()),
                                                    {scram:stored_key(scram:client_key(SaltedPassword)),
@@ -93,10 +105,9 @@ mech_step(#state{step = 2} = State, ClientIn) ->
                                                     TempSalt,
                                                     scram:iterations()}
                                             end,
-                                            {NStart, _} = binary:match(ClientIn, <<"n=">>),
-                                            ClientFirstMessageBare = binary:part(ClientIn,
-                                                                                 {NStart,
-                                                                                  byte_size(ClientIn)-NStart}),
+                                            %% it's not clear whether extension attributes should be included in client-first-message-bare
+                                            %% our implementation won't include the extension attributes
+                                            ClientFirstMessageBare = <<UserNameAttribute/binary, $, , ClientNonceAttribute/binary>>,
                                             ServerNonce =
                                             jlib:encode_base64(crypto:rand_bytes(?NONCE_LENGTH)),
                                             ServerFirstMessage =
@@ -116,7 +127,7 @@ mech_step(#state{step = 2} = State, ClientIn) ->
                                                            ",", ServerFirstMessage/binary>>,
                                                          client_nonce = ClientNonce,
                                                          server_nonce = ServerNonce,
-                                                         username = UserName}}
+                                                         username = RetrievedUsername}}
                                     end;
                                 _Else -> {error, <<"not-supported">>}
                             end

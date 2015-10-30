@@ -592,7 +592,8 @@ wait_for_feature_request({xmlstreamelement, El}, StateData) ->
     TLSRequired = StateData#state.tls_required,
     SockMod = (StateData#state.sockmod):get_sockmod(StateData#state.socket),
     case {xml:get_attr_s(<<"xmlns">>, Attrs), Name} of
-        {?NS_SASL, <<"auth">>} when TLSEnabled or not TLSRequired ->
+        %%{?NS_SASL, <<"auth">>} when TLSEnabled or not TLSRequired -> sharp delete.
+        {?NS_SASL, <<"auth">>} when not ((SockMod == gen_tcp) and TLSRequired) ->
             Mech = xml:get_attr_s(<<"mechanism">>, Attrs),
             ClientIn = jlib:decode_base64(xml:get_cdata(Els)),
             StepResult = cyrsasl:server_start(StateData#state.sasl_state, Mech, ClientIn),
@@ -643,7 +644,8 @@ wait_for_feature_request({xmlstreamelement, El}, StateData) ->
             end;
         _ ->
             if
-                TLSRequired and not TLSEnabled ->
+                %%TLSRequired and not TLSEnabled -> sharp delete.
+                (SockMod == gen_tcp) and TLSRequired ->
                     Lang = StateData#state.lang,
                     send_element(StateData, ?POLICY_VIOLATION_ERR(
                                                Lang, <<"Use of STARTTLS required">>)),
@@ -1798,6 +1800,18 @@ presence_update(From, Packet, StateData) ->
                                     end,
                     presence_broadcast_first(From, NewStateData1, Packet);
                 true ->
+                    %% save md5 of vcard.
+                    #jid{lserver = LServer }= From,
+                    case xml:get_subtag(Packet, <<"x">>) of
+                        false -> nothing_to_do;
+                        XEle ->
+                            case xml:get_subtag(XEle, <<"photo">>) of
+                                false -> nothing_to_do;
+                                PhotoEle ->
+                                    VCardTag = xml:get_tag_cdata(PhotoEle),
+                                    mod_vcard_odbc:update_vcard_tag(LServer, StateData#state.user, VCardTag)
+                            end
+                    end,
                     presence_broadcast_to_trusted(NewStateData,
                                                   From,
                                                   NewStateData#state.pres_f,

@@ -65,7 +65,7 @@ get_roster(LUser, LServer) ->
         {selected,
          [<<"username">>, <<"jid">>, <<"nick">>,
           <<"subscription">>, <<"ask">>, <<"askmessage">>,
-          <<"server">>, <<"subscribe">>, <<"type">>],
+          <<"server">>, <<"subscribe">>, <<"type">>, <<"private">>],
          Items}
           when is_list(Items) ->
             JIDGroups = case catch
@@ -108,7 +108,7 @@ get_roster_by_jid_t(LUser, LServer, LJID) ->
     {selected,
      [<<"username">>, <<"jid">>, <<"nick">>,
       <<"subscription">>, <<"ask">>, <<"askmessage">>,
-      <<"server">>, <<"subscribe">>, <<"type">>],
+      <<"server">>, <<"subscribe">>, <<"type">>, <<"private">>],
      Res} =
     odbc_queries:get_roster_by_jid(LServer, Username, SJID),
     case Res of
@@ -134,7 +134,7 @@ get_subscription_lists(_, LUser, LServer) ->
         {selected,
          [<<"username">>, <<"jid">>, <<"nick">>,
           <<"subscription">>, <<"ask">>, <<"askmessage">>,
-          <<"server">>, <<"subscribe">>, <<"type">>],
+          <<"server">>, <<"subscribe">>, <<"type">>, <<"private">>],
          Items}
           when is_list(Items) ->
             Items;
@@ -157,7 +157,7 @@ get_roster_by_jid_with_groups_t(LUser, LServer, LJID) ->
         {selected,
          [<<"username">>, <<"jid">>, <<"nick">>,
           <<"subscription">>, <<"ask">>, <<"askmessage">>,
-          <<"server">>, <<"subscribe">>, <<"type">>],
+          <<"server">>, <<"subscribe">>, <<"type">>, <<"private">>],
          [I]} ->
             R = raw_to_record(LServer, I),
             Groups = case odbc_queries:get_roster_groups(LServer,
@@ -171,7 +171,7 @@ get_roster_by_jid_with_groups_t(LUser, LServer, LJID) ->
         {selected,
          [<<"username">>, <<"jid">>, <<"nick">>,
           <<"subscription">>, <<"ask">>, <<"askmessage">>,
-          <<"server">>, <<"subscribe">>, <<"type">>],
+          <<"server">>, <<"subscribe">>, <<"type">>, <<"private">>],
          []} ->
             #roster{usj = {LUser, LServer, LJID},
                     us = {LUser, LServer}, jid = LJID}
@@ -197,7 +197,7 @@ del_roster_t(LUser, LServer, LJID) ->
 
 raw_to_record(LServer,
               {User, SJID, Nick, SSubscription, SAsk, SAskMessage,
-               _SServer, _SSubscribe, _SType}) ->
+               _SServer, _SSubscribe, _SType, Private}) ->
     case jlib:binary_to_jid(SJID) of
         error -> error;
         JID ->
@@ -219,7 +219,7 @@ raw_to_record(LServer,
             #roster{usj = {User, LServer, LJID},
                     us = {User, LServer}, jid = LJID, name = Nick,
                     subscription = Subscription, ask = Ask,
-                    askmessage = SAskMessage}
+                    askmessage = SAskMessage, private = Private}
     end.
 
 read_subscription_and_groups(LUser, LServer, LJID) ->

@@ -8,7 +8,7 @@ if [ ${TRAVIS_PULL_REQUEST} != "false" ]; then
     chmod +x jq
     JQ='./jq -a -M'
     PULL_REQ_FILE="/tmp/mongoose_pull_req"
-    MONGOOSE_REPO_URL="${G_API}/repos/esl/MongooseIM"
+    MONGOOSE_REPO_URL="${G_API}/repos/ZekeLu/MongooseIM"
     curl ${MONGOOSE_REPO_URL}/pulls/${TRAVIS_PULL_REQUEST} > ${PULL_REQ_FILE}
     M_PULL_USER=`${JQ} '.head.user.login' ${PULL_REQ_FILE}`
     M_PULL_USER=${M_PULL_USER//\"/}

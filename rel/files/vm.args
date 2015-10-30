@@ -25,3 +25,4 @@
 
 ## With lager sasl reports are redundant so turn them off
 -sasl sasl_error_logger false
+{{smp}}

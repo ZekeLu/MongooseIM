@@ -39,6 +39,7 @@
 	     get_password/2,
 	     set_password_t/3,
 	     add_user/3,
+         add_user/5,
 	     del_user/2,
 	     del_user_return_password/3,
 	     list_users/1,
@@ -84,7 +85,8 @@
 	     add_privacy_list/2,
 	     set_privacy_list/2,
 	     del_privacy_lists/3,
-	     set_vcard/26,
+	     set_vcard/29,
+         set_vcard_with_no_transaction/29,
 	     get_vcard/2,
          search_vcard/3,
 	     escape_string/1,
@@ -262,10 +264,15 @@ del_last(LServer, Username) ->
       [<<"delete from last where username='">>, Username, "'"]).
 
 get_password(LServer, Username) ->
+    {Field, Value} = case Username of
+                         {phone, Phone} -> {<<"cellphone">>, Phone};
+                         {email, Email} -> {<<"email">>, Email};
+                         Username -> {<<"username">>, Username}
+                     end,
     ejabberd_odbc:sql_query(
-      LServer,
-      [<<"select password, pass_details from users "
-       "where username='">>, Username, <<"';">>]).
+        LServer,
+        [<<"select username, password, pass_details from users where ">>,
+            Field, <<"='">>, Value, <<"';">>]).
 
 set_password_t(LServer, Username, {Pass, PassDetails}) ->
     ejabberd_odbc:sql_transaction(
@@ -294,6 +301,13 @@ add_user(LServer, Username, Pass) ->
       LServer,
       [<<"insert into users(username, password) "
          "values ('">>, Username, <<"', '">>, Pass, <<"');">>]).
+
+add_user(LServer, Username, {Pass, PassDetails}, Phone, Email) ->
+    Ins = <<"insert into users(username, password, pass_details, cellphone, email) values ('">>,
+    ejabberd_odbc:sql_query(LServer,
+        [Ins, Username, <<"', '">>, Pass, <<"', '">>, PassDetails, <<"', '">>, Phone, <<"', '">>, Email, <<"');">>]);
+add_user(LServer, Username, Pass, Phone, Email) ->
+    add_user(LServer, Username, {Pass, <<>>}, Phone, Email).
 
 del_user(LServer, Username) ->
     ejabberd_odbc:sql_query(
@@ -413,7 +427,7 @@ get_roster(LServer, Username) ->
     ejabberd_odbc:sql_query(
       LServer,
       [<<"select username, jid, nick, subscription, ask, "
-         "askmessage, server, subscribe, type from rosterusers "
+         "askmessage, server, subscribe, type, private from rosterusers "
          "where username='">>, Username, "'"]).
 
 get_roster_jid_groups(LServer, Username) ->
@@ -443,7 +457,7 @@ del_user_roster_t(LServer, Username) ->
 get_roster_by_jid(_LServer, Username, SJID) ->
     ejabberd_odbc:sql_query_t(
       [<<"select username, jid, nick, subscription, "
-         "ask, askmessage, server, subscribe, type from rosterusers "
+         "ask, askmessage, server, subscribe, type, private from rosterusers "
          "where username='">>, Username, <<"' "
          "and jid='">>, SJID, "';"]).
 
@@ -562,51 +576,100 @@ del_user_private_storage(LServer, Username) ->
       LServer,
       [<<"delete from private_storage where username='">>, Username, "';"]).
 
-set_vcard(LServer, LUsername, SBDay, SCTRY, SEMail, SFN, SFamily, SGiven,
-	  SLBDay, SLCTRY, SLEMail, SLFN, SLFamily, SLGiven, SLLocality,
-	  SLMiddle, SLNickname, SLOrgName, SLOrgUnit, SLocality, SMiddle,
-	  SNickname, SOrgName, SOrgUnit, SVCARD, Username) ->
+set_vcard_with_no_transaction(LServer, LUsername, SBDay, SCTRY, SEMail, STel, SFN, SFamily, SGiven,
+    SLBDay, SLCTRY, SLEMail, SLTel, SLFN, SLFamily, SLGiven, SLLocality,
+    SLMiddle, SLNickname, SLOrgName, SLOrgUnit, SLocality, SMiddle,
+    SNickname, SOrgName, SOrgUnit, SVCARD, SVCardTag, Username) ->
+    update_t(<<"vcard">>,
+        [<<"username">>, <<"server">>, <<"vcard">>, <<"tag">>],
+        [LUsername, LServer, SVCARD, SVCardTag],
+        [<<"username='">>, LUsername, <<"' and server='">>, LServer, "'"]),
+    update_set_t(<<"vcard_search">>,
+        [<<"username">>, Username,
+            <<"lusername">>, LUsername,
+            <<"server">>, LServer,
+            <<"fn">>, SFN,
+            <<"lfn">>, SLFN,
+            <<"family">>, SFamily,
+            <<"lfamily">>, SLFamily,
+            <<"given">>, SGiven,
+            <<"lgiven">>, SLGiven,
+            <<"middle">>, SMiddle,
+            <<"lmiddle">>, SLMiddle,
+            <<"nickname">>, SNickname,
+            <<"lnickname">>, SLNickname,
+            <<"bday">>, SBDay,
+            <<"lbday">>, SLBDay,
+            <<"ctry">>, SCTRY,
+            <<"lctry">>, SLCTRY,
+            <<"locality">>, SLocality,
+            <<"llocality">>, SLLocality,
+            <<"email">>, SEMail,
+            <<"lemail">>, SLEMail,
+            <<"tel">>, STel,
+            <<"ltel">>, SLTel,
+            <<"orgname">>, SOrgName,
+            <<"lorgname">>, SLOrgName,
+            <<"orgunit">>, SOrgUnit,
+            <<"lorgunit">>, SLOrgUnit],
+        [<<"lusername='">>, LUsername, <<"' and server='">>, LServer, "'"]).
+
+
+set_vcard(LServer, LUsername, SBDay, SCTRY, SEMail, STel, SFN, SFamily, SGiven,
+    SLBDay, SLCTRY, SLEMail, SLTel, SLFN, SLFamily, SLGiven, SLLocality,
+    SLMiddle, SLNickname, SLOrgName, SLOrgUnit, SLocality, SMiddle,
+    SNickname, SOrgName, SOrgUnit, SVCARD, SVCardTag, Username) ->
     ejabberd_odbc:sql_transaction(
-      LServer,
-      fun() ->
-        update_t(<<"vcard">>,
-          [<<"username">>, <<"server">>, <<"vcard">>],
-          [LUsername, LServer, SVCARD],
-          [<<"username='">>, LUsername, <<"' and server='">>, LServer, "'"]),
-        update_set_t(<<"vcard_search">>,
-          [<<"username">>, Username,
-           <<"lusername">>, LUsername,
-           <<"server">>, LServer,
-           <<"fn">>, SFN,
-           <<"lfn">>, SLFN,
-           <<"family">>, SFamily,
-           <<"lfamily">>, SLFamily,
-           <<"given">>, SGiven,
-           <<"lgiven">>, SLGiven,
-           <<"middle">>, SMiddle,
-           <<"lmiddle">>, SLMiddle,
-           <<"nickname">>, SNickname,
-           <<"lnickname">>, SLNickname,
-           <<"bday">>, SBDay,
-           <<"lbday">>, SLBDay,
-           <<"ctry">>, SCTRY,
-           <<"lctry">>, SLCTRY,
-           <<"locality">>, SLocality,
-           <<"llocality">>, SLLocality,
-           <<"email">>, SEMail,
-           <<"lemail">>, SLEMail,
-           <<"orgname">>, SOrgName,
-           <<"lorgname">>, SLOrgName,
-           <<"orgunit">>, SOrgUnit,
-           <<"lorgunit">>, SLOrgUnit],
-          [<<"lusername='">>, LUsername, <<"' and server='">>, LServer, "'"])
-      end).
+        LServer,
+        fun() ->
+            case SVCardTag of
+                <<>> ->
+                    update_t(<<"vcard">>,
+                        [<<"username">>, <<"server">>, <<"vcard">>],
+                        [LUsername, LServer, SVCARD],
+                        [<<"username='">>, LUsername, <<"' and server='">>, LServer, "'"]);
+                _ ->
+                    update_t(<<"vcard">>,
+                        [<<"username">>, <<"server">>, <<"vcard">>, <<"tag">>],
+                        [LUsername, LServer, SVCARD, SVCardTag],
+                        [<<"username='">>, LUsername, <<"' and server='">>, LServer, "'"])
+            end,
+            update_set_t(<<"vcard_search">>,
+                [<<"username">>, Username,
+                    <<"lusername">>, LUsername,
+                    <<"server">>, LServer,
+                    <<"fn">>, SFN,
+                    <<"lfn">>, SLFN,
+                    <<"family">>, SFamily,
+                    <<"lfamily">>, SLFamily,
+                    <<"given">>, SGiven,
+                    <<"lgiven">>, SLGiven,
+                    <<"middle">>, SMiddle,
+                    <<"lmiddle">>, SLMiddle,
+                    <<"nickname">>, SNickname,
+                    <<"lnickname">>, SLNickname,
+                    <<"bday">>, SBDay,
+                    <<"lbday">>, SLBDay,
+                    <<"ctry">>, SCTRY,
+                    <<"lctry">>, SLCTRY,
+                    <<"locality">>, SLocality,
+                    <<"llocality">>, SLLocality,
+                    <<"email">>, SEMail,
+                    <<"lemail">>, SLEMail,
+                    <<"tel">>, STel,
+                    <<"ltel">>, SLTel,
+                    <<"orgname">>, SOrgName,
+                    <<"lorgname">>, SLOrgName,
+                    <<"orgunit">>, SOrgUnit,
+                    <<"lorgunit">>, SLOrgUnit],
+                [<<"lusername='">>, LUsername, <<"' and server='">>, LServer, "'"])
+        end).
 
 get_vcard(LServer, Username) ->
     ejabberd_odbc:sql_query(
-      LServer,
-      [<<"select vcard from vcard "
-         "where username='">>, Username, <<"' and server='">>, LServer, "';"]).
+        LServer,
+        [<<"select vcard from vcard "
+        "where username='">>, Username, <<"' and server='">>, LServer, "';"]).
 
 
 search_vcard(LServer, RestrictionSQL, Limit) ->
@@ -630,7 +693,7 @@ do_search_vcard2(LServer, RestrictionSQL, Limit) ->
         LServer,
         [<<"select username, server, fn, family, given, middle, "
         "nickname, bday, ctry, locality, "
-        "email, orgname, orgunit from vcard_search ">>,
+        "email, tel, orgname, orgunit from vcard_search ">>,
             RestrictionSQL, Limit, ";"]).
 
 get_default_privacy_list(LServer, Username) ->

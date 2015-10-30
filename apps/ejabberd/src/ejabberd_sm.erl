@@ -562,18 +562,18 @@ do_route(From, To, Packet) ->
             end
     end.
 
--spec do_route_no_resource_presence_prv(From, To, Packet, Type, Reason) -> boolean() when
+-spec do_route_no_resource_presence_prv(From, To, Packet, Type, _Reason) -> boolean() when
       From :: ejabberd:jid(),
       To :: ejabberd:jid(),
       Packet :: jlib:xmlel(),
       Type :: 'subscribe' | 'subscribed' | 'unsubscribe' | 'unsubscribed',
-      Reason :: any().
-do_route_no_resource_presence_prv(From,To,Packet,Type,Reason) ->
+      _Reason :: any().
+do_route_no_resource_presence_prv(From,To,Packet,Type,_Reason) ->
     is_privacy_allow(From, To, Packet) andalso ejabberd_hooks:run_fold(
         roster_in_subscription,
         To#jid.lserver,
         false,
-        [To#jid.user, To#jid.server, From, Type, Reason]).
+        [To#jid.user, To#jid.server, From, Type, Packet]).
 
 
 -spec do_route_no_resource_presence(Type, From, To, Packet) -> boolean() when
@@ -685,12 +685,27 @@ is_privacy_allow(From, To, Packet, PrivacyList) ->
                [User, Server, PrivacyList,
                 {From, To, Packet}, in]).
 
+append_sender(SenderJidBin, InfoTag) ->
+    SendEl = [{xmlel, <<"sender">>, [], [{xmlcdata, SenderJidBin}]}],
+    xml:append_subtags(InfoTag, SendEl).
+
 
 -spec route_message(From, To, Packet) -> ok | stop when
       From :: ejabberd:jid(),
       To :: ejabberd:jid(),
       Packet :: jlib:xmlel().
 route_message(From, To, Packet) ->
+    case try_distribute_group_message(From, To, Packet) of
+        ok ->
+            ok;
+        no_group_message ->
+            do_route_message(From, To, Packet)
+    end.
+
+-spec do_route_message(From :: ejabberd:jid(),
+    To :: ejabberd:jid(),
+    Packet :: jlib:xmlel()) -> 'ok' | 'stop'.
+do_route_message(From, To, Packet) ->
     LUser = To#jid.luser,
     LServer = To#jid.lserver,
     PrioPid = get_user_present_pids(LUser,LServer),
@@ -731,6 +746,62 @@ route_message(From, To, Packet) ->
                                     Packet, ?ERR_SERVICE_UNAVAILABLE),
                             ejabberd_router:route(To, From, Err)
                     end
+            end
+    end.
+
+%% @doc groupchat message
+%% https://github.com/ZekeLu/MongooseIM/wiki/Extending-XMPP#10-send-message-to-a-group
+-spec try_distribute_group_message(From :: ejabberd:jid(),
+    To :: ejabberd:jid(),
+    Packet :: jlib:xmlel()) -> 'ok' | 'stop'.
+try_distribute_group_message(From, To, Packet) ->
+    case {xml:get_tag_attr_s(<<"type">>, Packet), xml:get_subtag(Packet, <<"info">>)} of
+        {_, false} -> no_group_message;
+        {<<"error">>, _} -> no_group_message;
+        {_, InfoTag}->
+            case xml:get_tag_attr_s(<<"groupChat">>, InfoTag) of
+                <<"1">> ->
+                    case xml:get_subtag(InfoTag, <<"sender">>) of
+                        false ->
+                            LUser = To#jid.luser,
+                            LServer = To#jid.lserver,
+
+                            GroupId = LUser,
+                            SenderJidBin = jlib:jid_to_binary({From#jid.user, From#jid.server, <<>>}),
+                            case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
+                                {ok, MembersInfoList} ->
+                                    NewInfoTag = append_sender(SenderJidBin, InfoTag),
+                                    Children = [NewInfoTag | lists:keydelete(<<"info">>, #xmlel.name, Packet#xmlel.children)],
+
+                                    GroupJid = To,
+                                    GroupJidBin = jlib:jid_to_binary(GroupJid),
+                                    OriginalAttrs = Packet#xmlel.attrs,
+                                    TempAttrs = lists:keydelete(<<"to">>, 1, lists:keydelete(<<"from">>, 1, OriginalAttrs)),
+                                    Attrs = [{<<"from">>, GroupJidBin} | TempAttrs],
+                                    lists:foreach(fun({MemberJidBin, _Nickname}) when MemberJidBin =:= SenderJidBin ->
+                                        ok;
+                                        ({MemberJidBin, _Nickname}) ->
+                                            do_route_message(GroupJid,
+                                                jlib:binary_to_jid(MemberJidBin),
+                                                Packet#xmlel{
+                                                    attrs = [{<<"to">>, MemberJidBin} | Attrs],
+                                                    children = Children})
+                                    end,
+                                        MembersInfoList),
+                                    ok;
+                                {error, _} ->
+                                    Err = jlib:make_error_reply(Packet, ?ERR_SERVICE_UNAVAILABLE),
+                                    ejabberd_router:route(To, From, Err)
+                            end;
+                        _ ->
+                            %% inbound packets should not include the <sender/> element
+                            %% if a client make a mistake to include the <sender/> element,
+                            %% the mod_aft_message module will remove it
+                            %% so only resent offline messages will include a <sender/> and arrive here
+                            no_group_message
+                    end;
+                _ ->
+                    no_group_message
             end
     end.
 

@@ -21,10 +21,17 @@
 
 CREATE TABLE users (
     username varchar(250) PRIMARY KEY,
-    password text NOT NULL,
+    password text,
     pass_details text,
+    id varchar(50),
+    email varchar(250),
+    cellphone varchar(50),
+    token varchar(250),
     created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) CHARACTER SET utf8;
+
+CREATE INDEX i_users_email ON users(email);
+CREATE INDEX i_users_cellphone ON users(cellphone);
 
 
 CREATE TABLE last (
@@ -46,6 +53,7 @@ CREATE TABLE rosterusers (
     server character(1) NOT NULL,
     subscribe text NOT NULL,
     type text,
+    private boolean NOT NULL DEFAULT false,
     created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) CHARACTER SET utf8;
 
@@ -61,11 +69,12 @@ CREATE TABLE rostergroups (
 
 CREATE INDEX pk_rosterg_user_jid ON rostergroups(username(75), jid(75));
 
-
+-- tag: md5 32byte.
 CREATE TABLE vcard (
     username varchar(150),
     server varchar(150),
     vcard mediumtext NOT NULL,
+    tag  char(32) NOT NULL,
     created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (username, server)
 ) CHARACTER SET utf8;
@@ -93,6 +102,8 @@ CREATE TABLE vcard_search (
     llocality varchar(250) NOT NULL,
     email text NOT NULL,
     lemail varchar(250) NOT NULL,
+    tel text NOT NULL,
+    ltel varchar(250) NOT NULL,
     orgname text NOT NULL,
     lorgname varchar(250) NOT NULL,
     orgunit text NOT NULL,
@@ -110,6 +121,7 @@ CREATE INDEX i_vcard_search_lbday     ON vcard_search(lbday);
 CREATE INDEX i_vcard_search_lctry     ON vcard_search(lctry);
 CREATE INDEX i_vcard_search_llocality ON vcard_search(llocality);
 CREATE INDEX i_vcard_search_lemail    ON vcard_search(lemail);
+CREATE INDEX i_vcard_search_ltel      ON vcard_search(ltel);
 CREATE INDEX i_vcard_search_lorgname  ON vcard_search(lorgname);
 CREATE INDEX i_vcard_search_lorgunit  ON vcard_search(lorgunit);
 
@@ -161,6 +173,62 @@ CREATE TABLE roster_version (
 -- ALTER TABLE rosterusers ADD COLUMN askmessage text AFTER ask;
 -- UPDATE rosterusers SET askmessage = '';
 -- ALTER TABLE rosterusers ALTER COLUMN askmessage SET NOT NULL;
+
+CREATE TABLE pubsub_node (
+  host text,
+  node text,
+  parent text,
+  type text,
+  nodeid bigint auto_increment primary key
+) CHARACTER SET utf8;
+CREATE INDEX i_pubsub_node_parent ON pubsub_node(parent(120));
+CREATE UNIQUE INDEX i_pubsub_node_tuple ON pubsub_node(host(20), node(120));
+
+CREATE TABLE pubsub_node_option (
+  nodeid bigint,
+  name text,
+  val text
+) CHARACTER SET utf8;
+CREATE INDEX i_pubsub_node_option_nodeid ON pubsub_node_option(nodeid);
+ALTER TABLE `pubsub_node_option` ADD FOREIGN KEY (`nodeid`) REFERENCES `pubsub_node` (`nodeid`) ON DELETE CASCADE;
+
+CREATE TABLE pubsub_node_owner (
+  nodeid bigint,
+  owner text
+) CHARACTER SET utf8;
+CREATE INDEX i_pubsub_node_owner_nodeid ON pubsub_node_owner(nodeid);
+ALTER TABLE `pubsub_node_owner` ADD FOREIGN KEY (`nodeid`) REFERENCES `pubsub_node` (`nodeid`) ON DELETE CASCADE;
+
+CREATE TABLE pubsub_state (
+  nodeid bigint,
+  jid text,
+  affiliation character(1),
+  subscriptions text,
+  stateid bigint auto_increment primary key
+) CHARACTER SET utf8;
+CREATE INDEX i_pubsub_state_jid ON pubsub_state(jid(60));
+CREATE UNIQUE INDEX i_pubsub_state_tuple ON pubsub_state(nodeid, jid(60));
+ALTER TABLE `pubsub_state` ADD FOREIGN KEY (`nodeid`) REFERENCES `pubsub_node` (`nodeid`) ON DELETE CASCADE;
+
+CREATE TABLE pubsub_item (
+  nodeid bigint,
+  itemid text,
+  publisher text,
+  creation text,
+  modification text,
+  payload text
+) CHARACTER SET utf8;
+CREATE INDEX i_pubsub_item_itemid ON pubsub_item(itemid(36));
+CREATE UNIQUE INDEX i_pubsub_item_tuple ON pubsub_item(nodeid, itemid(36));
+ALTER TABLE `pubsub_item` ADD FOREIGN KEY (`nodeid`) REFERENCES `pubsub_node` (`nodeid`) ON DELETE CASCADE;
+
+CREATE TABLE pubsub_subscription_opt (
+  subid text,
+  opt_name varchar(32),
+  opt_value text
+);
+CREATE UNIQUE INDEX i_pubsub_subscription_opt ON pubsub_subscription_opt(subid(32), opt_name(32));
+
 CREATE TABLE mam_message(
   -- Message UID (64 bits)
   -- A server-assigned UID that MUST be unique within the archive.
@@ -200,6 +268,14 @@ CREATE TABLE mam_config(
 );
 CREATE INDEX i_mam_config USING HASH ON mam_config(user_id, remote_jid);
 
+CREATE TABLE mam_user(
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_name varchar(250) CHARACTER SET binary NOT NULL,
+  PRIMARY KEY(id) USING HASH,
+  CONSTRAINT uc_mam_user_name UNIQUE (user_name)
+);
+CREATE INDEX i_mam_user_name USING HASH ON mam_user(user_name);
+
 CREATE TABLE mam_server_user(
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   server    varchar(250) CHARACTER SET binary NOT NULL,
@@ -233,3 +309,204 @@ CREATE TABLE offline_message(
   packet    blob            NOT NULL
 );
 CREATE INDEX i_offline_message USING BTREE ON offline_message(server, username, id);
+
+
+-- aft mod_groupchat tables begin
+CREATE TABLE groupinfo (
+    groupid int PRIMARY KEY NOT NULL auto_increment,
+    name varchar(250) CHARACTER SET binary,
+    owner varchar(250) CHARACTER SET binary NOT NULL,
+    type tinyint NOT NULL default 1,  -- 1 - noraml group; 2 - task; 3 - event; 4 - file transfer
+    status tinyint NOT NULL default 1, -- 1 - start; 2 - end;
+    project int NULL,
+    avatar varchar(250) CHARACTER SET binary,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    end_at timestamp
+) CHARACTER SET utf8;
+
+CREATE INDEX groupinfo_project_index ON groupinfo (project);
+
+CREATE TABLE groupuser (
+    id int PRIMARY KEY NOT NULL auto_increment,
+    groupid int NOT NULL,
+    jid varchar(250) CHARACTER SET binary NOT NULL,
+    nickname varchar(250) CHARACTER SET binary,
+    private boolean NOT NULL DEFAULT false,
+    joined_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+) CHARACTER SET utf8;
+CREATE INDEX group_jid_index ON groupuser (jid);
+CREATE INDEX group_id_index ON groupuser (groupid);
+-- aft mod_groupchat tables end
+
+CREATE TABLE privatemode (
+    jid varchar(250) CHARACTER SET binary PRIMARY KEY NOT NULL,
+    password varchar(250) CHARACTER SET binary NOT NULL
+) CHARACTER SET utf8;
+
+-- push service begin
+CREATE TABLE push_service (
+    id int PRIMARY KEY NOT NULL auto_increment,
+    jid varchar(250) CHARACTER SET binary NOT NULL,
+    token varchar(250) CHARACTER SET binary NOT NULL,
+    push_type tinyint unsigned NOT NULL, -- push_type: 1. iOS, 2. Android, 3. Other
+    last_login timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+) CHARACTER SET utf8;
+CREATE INDEX push_jid_index ON push_service (jid);
+CREATE UNIQUE INDEX push_token_index ON push_service (token);
+-- push service end
+
+-- mms_file begin
+CREATE TABLE mms_file (
+    id varchar(64) PRIMARY KEY,
+    uid varchar(64) NOT NULL,
+    filename varchar(250) CHARACTER SET binary NOT NULL,
+    type tinyint unsigned NOT NULL default 1, -- file_type: 1. avatar, 2. message, 3. project library
+    owner varchar(250) CHARACTER SET binary NOT NULL,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+) CHARACTER SET utf8;
+-- mms_file end
+
+-- organization begin
+CREATE TABLE organization (
+    id int PRIMARY KEY NOT NULL auto_increment,
+    name varchar(250) CHARACTER SET binary NOT NULL,
+    lft int NOT NULL,
+    rgt int NOT NULL,
+    depth int NOT NULL,
+    department varchar(250) CHARACTER SET binary,
+    project int NOT NULL
+) CHARACTER SET utf8;
+CREATE INDEX organization_tree_index ON organization (project);
+
+CREATE TABLE organization_user (
+    id int PRIMARY KEY NOT NULL auto_increment,
+    organization int NOT NULL,
+    jid varchar(250) CHARACTER SET binary NOT NULL,
+    project int NOT NULL
+) CHARACTER SET utf8;
+CREATE INDEX organization_user_index ON organization_user (organization, jid);
+CREATE INDEX organization_user_project_index ON organization_user(project);
+
+CREATE TABLE template(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    name varchar(250) CHARACTER SET binary NOT NULL,
+    photo varchar(250) CHARACTER SET binary NOT NULL,
+    description varchar(250) CHARACTER SET binary,
+    job_tag varchar(30) NOT NULL
+) CHARACTER SET utf8;
+
+CREATE TABLE project(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    name varchar(250) CHARACTER SET binary NOT NULL,
+    photo varchar(250) CHARACTER SET binary NOT NULL,
+    description varchar(250) CHARACTER SET binary,
+    status tinyint NOT NULL default 1,
+    admin varchar(250) CHARACTER SET binary NOT NULL,
+    start_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    end_at timestamp,
+    job_tag varchar(30) NOT NULL,
+    member_tag varchar(30) NOT NULL,
+    link_tag varchar(30) NOT NULL
+) CHARACTER SET utf8;
+
+CREATE TABLE project_link (
+    id1 int NOT NULL,
+    id2 int NOT NULL,
+    PRIMARY KEY (id1, id2)
+) CHARACTER SET utf8;
+
+CREATE INDEX project_link_id2_index ON project_link(id2);
+
+
+-- organization end
+
+-- favorite begin
+CREATE TABLE favorite_change(
+    jid varchar(250) PRIMARY KEY,
+    tag char(25) NOT NULL
+) CHARACTER SET utf8;
+
+CREATE TABLE favorite_tag(
+    id int NOT NULL auto_increment,
+    fid int NOT NULL,
+    tag varchar(25) CHARACTER SET binary NOT NULL,
+    PRIMARY KEY (id, fid)
+) CHARACTER SET utf8;
+
+CREATE INDEX i_fid ON favorite_tag(fid);
+
+CREATE TABLE favorite(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    jid varchar(250) CHARACTER SET binary NOT NULL,
+    from_jid varchar(250) CHARACTER SET binary NOT NULL,
+    title varchar(250) CHARACTER SET binary NOT NULL,
+    type int NOT NULL default 0,
+    content blob NOT NULL,
+    tag char(25) NOT NULL
+) CHARACTER SET utf8;
+CREATE INDEX i_jid ON favorite(jid);
+-- favorite end
+
+-- project library begin.
+CREATE TABLE file(
+    id int PRIMARY KEY auto_increment,
+    uuid varchar(64) CHARACTER SET binary NOT NULL,
+    name varchar(250) CHARACTER SET binary NOT NULL,
+    size_byte bigint NOT NULL,
+    creator varchar(250) CHARACTER SET binary NOT NULL,
+    version_count int NOT NULL DEFAULT 1,
+    folder int NOT NULL,
+    status boolean NOT NULL DEFAULT true,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    location varchar(250) CHARACTER SET binary,
+    deleted_at BIGINT UNSIGNED NOT NULL default 0
+) CHARACTER SET utf8;
+
+CREATE INDEX i_file_folder ON file(folder);
+
+CREATE TABLE folder(
+    id int PRIMARY KEY auto_increment,
+    type tinyint NOT NULL default 0,
+    name varchar(250) CHARACTER SET binary NOT NULL DEFAULT "",
+    creator varchar(250) CHARACTER SET binary NOT NULL DEFAULT "admin",
+    owner varchar(250) CHARACTER SET binary NOT NULL DEFAULT "admin",
+    parent int NOT NULL DEFAULT -1,
+    project int NOT NULL,
+    status boolean NOT NULL DEFAULT true,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    location varchar(250) CHARACTER SET binary,
+    deleted_at BIGINT UNSIGNED NOT NULL default 0
+) CHARACTER SET utf8;
+
+CREATE INDEX i_folder_parent ON folder(parent);
+CREATE INDEX i_folder_project ON folder(project);
+
+CREATE TABLE share_users(
+    folder int NOT NULL,
+    userjid varchar(250) CHARACTER SET binary NOT NULL,
+    PRIMARY KEY (folder, userjid)
+) CHARACTER SET utf8;
+
+CREATE TABLE file_version(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    file int NOT NULL,
+    uuid varchar(250) CHARACTER SET binary NOT NULL,
+    creator varchar(250) CHARACTER SET binary NOT NULL,
+    size_byte bigint NOT NULL,
+    created_at timestamp NOT NULL
+) CHARACTER SET utf8;
+
+CREATE INDEX i_file_version_file ON file_version(file);
+
+CREATE TABLE library_log(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    userjid varchar(250) CHARACTER SET binary NOT NULL,
+    operation tinyint NOT NULL DEFAULT 0,
+    text varchar(250) CHARACTER SET binary NOT NULL,
+    path varchar(250) CHARACTER SET binary,
+    project int NOT NULL,
+    created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+) CHARACTER SET utf8;
+
+CREATE INDEX i_file_log_project ON library_log(project);
+-- project library end.

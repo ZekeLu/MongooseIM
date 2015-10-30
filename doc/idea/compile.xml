@@ -1,0 +1,40 @@
+<toolSet name="compile">
+  <tool name="ejabberd" description="compile ejabberd" showInMainMenu="true" showInEditor="false" showInProject="false" showInSearchPopup="false" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="$ProjectFileDir$/rebar" />
+      <option name="PARAMETERS" value="compile skip_deps=true apps=mongooseim,ejabberd" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+    <filter>
+      <option name="NAME" value="rebar compile" />
+      <option name="DESCRIPTION" />
+      <option name="REGEXP" value="$FILE_PATH$:$LINE$" />
+    </filter>
+  </tool>
+  <tool name="ejabberd full" description="compile ejabberd" showInMainMenu="true" showInEditor="false" showInProject="false" showInSearchPopup="false" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="$ProjectFileDir$/rebar" />
+      <option name="PARAMETERS" value="compile" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+    <filter>
+      <option name="NAME" value="rebar compile" />
+      <option name="DESCRIPTION" />
+      <option name="REGEXP" value="$FILE_PATH$:$LINE$" />
+    </filter>
+  </tool>
+  <tool name="ejabberd__tests" showInMainMenu="true" showInEditor="false" showInProject="false" showInSearchPopup="false" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="$ProjectFileDir$/rebar" />
+      <option name="PARAMETERS" value="skip_deps=true compile" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$/test/ejabberd_tests" />
+    </exec>
+  </tool>
+  <tool name="ejabberd__tests full" showInMainMenu="true" showInEditor="false" showInProject="false" showInSearchPopup="false" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="$ProjectFileDir$/rebar" />
+      <option name="PARAMETERS" value="compile" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$/test/ejabberd_tests" />
+    </exec>
+  </tool>
+</toolSet>

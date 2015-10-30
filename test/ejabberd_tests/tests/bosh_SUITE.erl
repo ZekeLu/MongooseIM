@@ -43,8 +43,9 @@ https() ->
         {"true", "R15" ++ _} ->
             [];
         _ ->
-            [{group, essential_https},
-             {group, chat_https}]
+            []
+            %[{group, essential_https},
+            % {group, chat_https}]
     end.
 
 groups() ->

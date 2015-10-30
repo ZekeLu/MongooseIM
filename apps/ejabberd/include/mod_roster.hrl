@@ -27,7 +27,8 @@
                  ask = none,
                  groups = [],
                  askmessage = <<>>,
-                 xs = []}).
+                 xs = [],
+                 private = <<>>}).
 
 -record(roster_version, {us,
                         version}).

@@ -27,6 +27,8 @@
 -module(ejabberd_auth_odbc).
 -author('alexey@process-one.net').
 
+-include("jlib.hrl").
+
 %% External exports
 -behaviour(ejabberd_gen_auth).
 -export([start/1,
@@ -48,6 +50,14 @@
          store_type/1,
          plain_password_required/0
         ]).
+	
+-export([try_register/5,
+	     phonelist_search/2,
+         prepare_password/2,
+         user_info/2,
+         get_phone_email/3,
+         update_phone/3
+	]).
 
 -export([login/2, get_password/3]).
 
@@ -94,16 +104,16 @@ check_password(LUser, LServer, Password, Digest, DigestGen) ->
     Username = ejabberd_odbc:escape(LUser),
     try odbc_queries:get_password(LServer, Username) of
         %% Account exists, check if password is valid
-        {selected, [<<"password">>, <<"pass_details">>], [{Passwd, null}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{Passwd, null}]} ->
             ejabberd_auth:check_digest(Digest, DigestGen, Password, Passwd);
-        {selected, [<<"password">>, <<"pass_details">>], [{_Passwd, PassDetails}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_Passwd, PassDetails}]} ->
             case scram:deserialize(PassDetails) of
                 {ok, #scram{} = Scram} ->
                     scram:check_digest(Scram, Digest, DigestGen, Password);
                 _ ->
                     false
             end;
-        {selected, [<<"password">>, <<"pass_details">>], []} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], []} ->
             false; %% Account does not exist
         {error, _Error} ->
             false %% Typical error is that table doesn't exist
@@ -117,18 +127,18 @@ check_password(LUser, LServer, Password, Digest, DigestGen) ->
                                Password::binary()) -> boolean() | not_exists.
 check_password_wo_escape(LUser, LServer, Password) ->
     try odbc_queries:get_password(LServer, LUser) of
-        {selected, [<<"password">>, <<"pass_details">>], [{Password, null}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{Password, null}]} ->
             Password /= <<"">>; %% Password is correct, and not empty
-        {selected, [<<"password">>, <<"pass_details">>], [{_Password2, null}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_Password2, null}]} ->
             false;
-        {selected, [<<"password">>, <<"pass_details">>], [{_Password2, PassDetails}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_Password2, PassDetails}]} ->
             case scram:deserialize(PassDetails) of
                 {ok, Scram} ->
                     scram:check_password(Password, Scram);
                 _ ->
                     false %% Password is not correct
             end;
-        {selected, [<<"password">>, <<"pass_details">>], []} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], []} ->
             not_exists; %% Account does not exist
         {error, _Error} ->
             false %% Typical error is that table doesn't exist
@@ -221,31 +231,47 @@ get_vh_registered_users_number(LServer, Opts) ->
     end.
 
 
--spec get_password(User :: ejabberd:luser(),
-                   Server :: ejabberd:lserver()) -> binary() | false.
+-spec get_password(User :: ejabberd:luser() | {phone, binary()} | {email, binary()},
+                   Server :: ejabberd:lserver()) -> binary() | {ejabberd:user(), binary()} | false.
+get_password({phone, Phone}, Server) ->
+    do_get_password({phone, ejabberd_odbc:escape(Phone)}, Server);
+get_password({email, Email}, Server) ->
+    do_get_password({email, ejabberd_odbc:escape(Email)}, Server);
 get_password(LUser, LServer) ->
     Username = ejabberd_odbc:escape(LUser),
-    case catch odbc_queries:get_password(LServer, Username) of
-        {selected, [<<"password">>, <<"pass_details">>], [{Password, null}]} ->
-            Password; %%Plain password
-        {selected, [<<"password">>, <<"pass_details">>], [{_Password, PassDetails}]} ->
+    case do_get_password(Username, LServer) of
+        false -> false;
+        {_, Password} -> Password
+    end.
+
+do_get_password(LUser, LServer) ->
+    case catch odbc_queries:get_password(LServer, LUser) of
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{Username, <<>>, <<>>}]} ->
+            false;
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{Username, Password, null}]} ->
+            {Username, Password}; %%Plain password
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{Username, _Password, PassDetails}]} ->
             case scram:deserialize(PassDetails) of
-                {ok, Scram} ->
-                    scram:scram_to_tuple(Scram);
+                {ok, #scram{} = Scram} ->
+                    {Username,
+                     {base64:decode(Scram#scram.storedkey),
+                      base64:decode(Scram#scram.serverkey),
+                      base64:decode(Scram#scram.salt),
+                      Scram#scram.iterationcount}
+                    };
                 _ ->
                     false
             end;
         _ ->
             false
     end.
-
-
+    
 -spec get_password_s(LUser :: ejabberd:user(),
                      LServer :: ejabberd:server()) -> binary().
 get_password_s(LUser, LServer) ->
     Username = ejabberd_odbc:escape(LUser),
     case catch odbc_queries:get_password(LServer, Username) of
-        {selected, [<<"password">>, <<"pass_details">>], [{Password, _}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_, Password, _}]} ->
             Password;
         _ ->
             <<"">>
@@ -258,9 +284,9 @@ get_password_s(LUser, LServer) ->
 does_user_exist(LUser, LServer) ->
     Username = ejabberd_odbc:escape(LUser),
     try odbc_queries:get_password(LServer, Username) of
-        {selected, [<<"password">>, <<"pass_details">>], [{_Password, _}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_, _Password, _}]} ->
             true; %% Account exists
-        {selected, [<<"password">>, <<"pass_details">>], []} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], []} ->
             false; %% Account does not exist
         {error, Error} ->
             {error, Error} %% Typical error is that table doesn't exist
@@ -364,3 +390,136 @@ scram_passwords1(LServer, Count, Interval, ScramIterationCount) ->
 %% @doc Unimplemented gen_auth callbacks
 login(_User, _Server) -> erlang:error(not_implemented).
 get_password(_User, _Server, _DefaultValue) -> erlang:error(not_implemented).
+
+%% @doc our add function.
+try_register(Username, Server, _Password, Phone, Nick) ->
+    Nickname = ejabberd_odbc:escape(Nick),
+    Pass = {<<"">>, <<"">>},
+    LServer = jlib:nameprep(Server),
+    %% modify 'TEL' element about standard vcard format as:
+    %% 1.only one 'TEL' in vcard; 2.keep 'NUMBER' in 'TEL', also keep 'HOME' and 'CELL' in 'TEL', other element ignored.
+    %% vcard format: <VCARD> <TEL> <NUMBER>1388888888</NUMBER> </TEL> ...</VCARD>
+    VCardXml = {xmlel, <<"vCard">>,
+        [{<<"xmlns">>, ?NS_VCARD}],
+        [{xmlel, <<"NICKNAME">>, [], [{xmlcdata, Nickname}]},
+         {xmlel, <<"TEL">>, [], [{xmlel, <<"HOME">>, [], []},
+                                 {xmlel, <<"CELL">>, [], []},
+                                 {xmlel, <<"NUMBER">>, [], [{xmlcdata, Phone}]}]}]},
+    VCardTag = list_to_binary(jlib:md5_hex(exml:to_binary(VCardXml))),
+    F = fun() ->
+        case catch odbc_queries:add_user(LServer, Username, Pass, Phone, <<>>) of
+            {updated, 1} ->
+                {ok, VCardSearch} = mod_vcard:prepare_vcard_search_params(Username, LServer, VCardXml),
+                mod_vcard_odbc:set_vcard_with_no_transaction(Username, LServer, VCardXml, VCardTag, VCardSearch),
+                ok;
+            _ ->
+                exists
+        end end,
+    case ejabberd_odbc:sql_transaction(LServer, F) of
+        {atomic, ok} ->
+            ejabberd_hooks:run(vcard_set, LServer, [Username, LServer, VCardXml]),
+            {atomic, ok};
+        _ ->
+            {atomic, exists}
+    end.
+
+phonelist_search(PhoneList, LServer) ->
+    lists:foldl(fun(E, R) ->
+                        case catch ejabberd_odbc:sql_query(LServer, [<<"select username from users where cellphone='">>, E, <<"';">>]) of
+                            {selected, [<<"username">>], [{UserName}]} ->
+                                [{E, UserName} | R];
+                            _ ->
+                                R
+                        end end, [], PhoneList).
+user_info(Server, Phone) ->
+    LServer = jlib:nameprep(Server),
+    Query = ["select username, password, pass_details from users where cellphone='"],
+    try ejabberd_odbc:sql_query(LServer, [Query, Phone, "';"]) of
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{UserName, Password, PasswordDetails}]} ->
+            {info, {UserName, Password, PasswordDetails}};
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], []} ->
+            not_exist;
+        {error, Error} ->
+            {error, Error} %% Typical error is that table doesn't exist
+    catch
+        _:B -> {error, B} %% Typical error is database not accessible
+    end.
+
+get_phone_email(User, Server, IsPhone) ->
+    LServer = jlib:nameprep(Server),
+    LUser = jlib:nodeprep(User),
+
+    Name = case IsPhone of
+               true -> "cellphone";
+               _ -> "email"
+           end,
+    Query = ["select ", Name, " from users where username='", LUser, "';"],
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        %{selected, _, []} ->
+        %    not_exist;
+        {selected, _, [{<<>>}]} -> %% should not occur.
+            false;
+        {selected, _, [{null}]} -> %% should not occur.
+            false;
+        {selected, _, [{Result}]} ->
+            Result;
+        _ ->
+            false
+    end.
+
+update_phone(Username, Server, Phone) ->
+    LServer = jlib:nameprep(Server),
+    LUser = jlib:nodeprep(Username),
+
+    Query0 = ["select vcard from vcard where username='", LUser, "' and server='", LServer, "';"],
+    Query1 = ["update users set cellphone='", Phone, "' where username='", LUser, "';"],
+    F = fun() ->
+        VCard = case ejabberd_odbc:sql_query_t(Query0) of
+                                {selected, _, [{V}]} -> V;
+                                _ -> <<>>
+                end,
+        NewVCard = update_vcard_number(VCard, Phone),
+        VcardTag = list_to_binary(jlib:md5_hex(exml:to_binary(NewVCard))),
+        {ok, VCardSearch} = mod_vcard:prepare_vcard_search_params(Username, LServer, NewVCard),
+        case ejabberd_odbc:sql_query_t(Query1) of
+            {updated, 1} ->
+                mod_vcard_odbc:set_vcard_with_no_transaction(Username, LServer, NewVCard, VcardTag, VCardSearch),
+                true;
+            _ ->
+                false
+        end
+    end,
+
+    case ejabberd_odbc:sql_transaction(LServer, F) of
+        {atomic, true} ->
+            true;
+        _ ->
+            false
+    end.
+
+remove_element_children(#xmlel{children = Children}, Name) ->
+    lists:filter(fun(E) ->
+        case E of
+            #xmlel{name=Name} -> false;
+            _ -> true
+        end
+    end,
+    Children).
+
+update_vcard_number(VCard, Number) ->
+    TelXmlEl = {xmlel, <<"TEL">>, [], [{xmlel, <<"HOME">>, [], []},
+        {xmlel, <<"CELL">>, [], []},
+        {xmlel, <<"NUMBER">>, [], [{xmlcdata, Number}]}]},
+
+    case exml:parse(VCard) of
+        {ok, #xmlel{name = <<"vCard">>}} = {ok, VCardXml} ->
+            FilterChildren = remove_element_children(VCardXml, <<"TEL">>),
+            NewChildren = [TelXmlEl | FilterChildren],
+            VCardXml#xmlel{children = NewChildren};
+        _ ->
+            {xmlel, <<"vCard">>,
+                [{<<"xmlns">>, ?NS_VCARD}],
+                [{xmlel, <<"TEL">>, [], [{xmlel, <<"HOME">>, [], []},
+                                         {xmlel, <<"CELL">>, [], []},
+                                         {xmlel, <<"NUMBER">>, [], [{xmlcdata, Number}]}]}]}
+    end.

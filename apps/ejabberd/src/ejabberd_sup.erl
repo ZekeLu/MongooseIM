@@ -180,6 +180,13 @@ init([]) ->
         {mod_mam_sup,
          {mod_mam_sup, start_link, []},
          permanent, infinity, supervisor, [mod_mam_sup]},
+    APNsSupervisor = {
+        mod_apns_sup,
+        {mod_apns_sup, start_link, []},
+        permanent,
+        infinity,
+        supervisor,
+        [mod_apns_sup]},
     ShaperSpecs = shaper_srv:child_specs(),
 
     {ok, {{one_for_one, 10, 1},
@@ -203,4 +210,5 @@ init([]) ->
            STUNSupervisor,
            Listener,
            MucIQ,
-           MAM]}}.
+           MAM,
+	   APNsSupervisor]}}.

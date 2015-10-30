@@ -398,3 +398,9 @@
 {"Your Jabber account was successfully created.","你的 Jabber 帐户已成功创建."}.
 {"Your Jabber account was successfully deleted.","你的 Jabber 帐户已成功删除."}.
 {"Your messages to ~s are being blocked. To unblock them, visit ~s","您发送给 ~s 的消息已被阻止. 要解除阻止, 请访问 ~s"}.
+{"~s send a message to you","~s 发来一条消息"}.
+{"~s send an audio to you","~s 发来一段语音"}.
+{"~s send a picture to you","~s 发来一张图片"}.
+{"~s send a video to you","~s 发来一段视频."}.
+{"~s share location with you","~s 共享了一个位置"}.
+{"unknown","未知"}.

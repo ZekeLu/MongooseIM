@@ -660,23 +660,33 @@ prepare_filter(UserID, UserJID, Borders, Start, End, WithJID) ->
         SWithJID :: escaped_jid() | undefined,
         SWithResource :: escaped_resource() | undefined) -> filter().
 prepare_filter_sql(UserID, StartID, EndID, SWithJID, SWithResource) ->
-   ["WHERE user_id='", escape_user_id(UserID), "'",
-     case StartID of
-        undefined -> "";
-        _         -> [" AND id >= ", integer_to_list(StartID)]
-     end,
-     case EndID of
-        undefined -> "";
-        _         -> [" AND id <= ", integer_to_list(EndID)]
-     end,
-     case SWithJID of
-        undefined -> "";
-        _         -> [" AND remote_bare_jid = '", SWithJID, "'"]
-     end,
-     case SWithResource of
-        undefined -> "";
-        _         -> [" AND remote_resource = '", SWithResource, "'"]
-     end].
+    % filter aft group message
+    WhereUserID = try binary_to_integer(SWithJID) of
+                        _ -> ""
+                    catch
+                        _:_  ->
+                            ["user_id='", escape_user_id(UserID),"'"]
+                    end,
+    WhereStartID = case StartID of
+                       undefined -> "";
+                       _         -> ["id >= ", integer_to_list(StartID)]
+                   end,
+    WhereEndID = case EndID of
+                     undefined -> "";
+                     _         -> ["id <= ", integer_to_list(EndID)]
+                 end,
+    WhereSWithID = case SWithJID of
+                      undefined -> "";
+                      _         -> ["remote_bare_jid = '", SWithJID, "'"]
+                  end,
+    WhereSWithResource = case SWithResource of
+                             undefined -> "";
+                             _         -> ["remote_resource = '", SWithResource, "'"]
+                         end,
+    Where = string:join(lists:filter(fun(X) ->
+        X =/= []
+    end, [WhereUserID, WhereStartID, WhereEndID, WhereSWithID, WhereSWithResource])," AND "),
+    ["WHERE ", Where].
 
 
 %% @doc #rsm_in{

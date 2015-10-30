@@ -30,20 +30,20 @@ all() ->
     [
      {group, register},
      {group, registration_timeout},
-     {group, login},
-     {group, login_scram},
-     {group, login_scram_store_plain},
-     {group, messages}
+     %%{group, login},
+     {group, login_scram}
+     %%{group, login_scram_store_plain},
+     %%{group, messages}
     ].
 
 groups() ->
     [{register, [sequence], [register,
                              check_unregistered]},
      {registration_timeout, [sequence], [registration_timeout]},
-     {login, [sequence], all_tests()},
-     {login_scram, [sequence], scram_tests()},
-     {login_scram_store_plain, [sequence], scram_tests()},
-     {messages, [sequence], [messages_story, message_zlib_limit]}].
+     %%{login, [sequence], all_tests()},
+     {login_scram, [sequence], scram_tests()}].
+     %%{login_scram_store_plain, [sequence], scram_tests()},
+     %%{messages, [sequence], [messages_story, message_zlib_limit]}].
 
 scram_tests() ->
     [log_one, log_one_scram].

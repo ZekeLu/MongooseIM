@@ -27,13 +27,13 @@
 -define(REGISTRATION_TIMEOUT, 2).  %% seconds
 
 all() ->
-    [{group, ws_chat},
-     {group, wss_chat}].
+    [{group, ws_chat}].
+     %{group, wss_chat}].
 
 groups() ->
-    [{ws_chat, [sequence], test_cases()},
-     {wss_chat, [sequence], test_cases()}
-    ].
+    [{ws_chat, [sequence], test_cases()}].
+     %{wss_chat, [sequence], test_cases()}
+    %].
 
 test_cases() ->
     [chat_msg,
@@ -54,17 +54,22 @@ end_per_suite(Config) ->
     escalus:end_per_suite(Config).
 
 init_per_group(GroupName, Config) ->
-    Config1 = escalus:create_users(Config, {by_name, [alice, geralt, geralt_s, oldie]}),
-    case GroupName of
-        wss_chat ->
-            [{user, geralt_s} | Config1];
-        _ ->
-            [{user, geralt} | Config1]
-    end.
+%%     Config1 = escalus:create_users(Config, {by_name, [alice, geralt, geralt_s, oldie]}),
+%%     case GroupName of
+%%         wss_chat ->
+%%             [{user, geralt_s} | Config1];
+%%         _ ->
+%%             [{user, geralt} | Config1].
+%%     end.
+%%
+    Config1 = escalus:create_users(Config, {by_name, [alice, geralt, oldie]}),
+    [{user, geralt} | Config1].
+
 
 
 end_per_group(_GroupName, Config) ->
-    escalus:delete_users(Config, {by_name, [alice, geralt, geralt_s, oldie]}).
+    %escalus:delete_users(Config, {by_name, [alice, geralt, geralt_s, oldie]}).
+    escalus:delete_users(Config, {by_name, [alice, geralt, oldie]}).
 
 init_per_testcase(CaseName, Config) ->
     escalus:init_per_testcase(CaseName, Config).

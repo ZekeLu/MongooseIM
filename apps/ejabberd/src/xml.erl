@@ -28,6 +28,7 @@
 -author('alexey@process-one.net').
 
 -export([remove_cdata/1,
+         remove_tag_attr/2,
          get_cdata/1, get_tag_cdata/1,
          get_attr/2, get_attr_s/2,
          get_tag_attr/2, get_tag_attr_s/2,
@@ -93,6 +94,10 @@ get_attr_s(AttrName, Attrs) ->
 get_tag_attr(AttrName, #xmlel{attrs = Attrs}) ->
     get_attr(AttrName, Attrs).
 
+-spec remove_tag_attr(binary(), jlib:xmlel() ) -> jlib:xmlel().
+remove_tag_attr(AttrName, #xmlel{attrs = Attrs} = Tag) ->
+    NewAttrs = lists:keydelete(AttrName, 1, Attrs),
+    Tag#xmlel{attrs=NewAttrs}.
 
 -spec get_tag_attr_s(binary(), jlib:xmlel()) -> binary().
 get_tag_attr_s(AttrName, #xmlel{attrs = Attrs}) ->

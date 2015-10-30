@@ -110,13 +110,8 @@ hi_round(Password, UPrev, IterationCount) ->
 							 IterationCount - 1)))).
 
 
-enabled(Host) ->
-    case ejabberd_config:get_local_option(auth_opts, Host) of
-        undefined ->
-            false;
-        AuthOpts ->
-            {password_format, scram} == lists:keyfind(password_format, 1, AuthOpts)
-    end.
+enabled(_Host) ->
+    true.
 
 iterations() -> ?SCRAM_DEFAULT_ITERATION_COUNT.
 

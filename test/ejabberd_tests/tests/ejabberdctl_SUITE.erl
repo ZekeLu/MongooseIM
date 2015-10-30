@@ -59,7 +59,9 @@ groups() ->
         {stats, [sequence], stats()}
      ].
 
-accounts() -> [change_password, check_password_hash, check_password,
+accounts() -> [change_password,
+               %check_password_hash,
+               %check_password,
                check_account, ban_account, num_active_users, delete_old_users,
                delete_old_users_vhost].
 

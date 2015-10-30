@@ -41,11 +41,11 @@
           module,
           password_type
          }).
--type sasl_module() :: module().
+-type sasl_module() :: cyrsasl_scram.
 -type sasl_mechanism() :: #sasl_mechanism{
                              mechanism :: mechanism(),
                              module :: sasl_module(),
-                             password_type :: plain | digest | scram
+                             password_type :: scram
                             }.
 
 -type mechanism() :: binary().
@@ -61,7 +61,7 @@
                      }).
 -type sasl_state() :: #sasl_state{}.
 
--type get_password_fun() :: fun((ejabberd:user()) ->
+-type get_password_fun() :: fun((ejabberd:user() | {phone, binary()} | {email, binary()}) ->
                           {binary(), ejabberd_auth:authmodule()} | {false, none}
                         ).
 -type check_password_fun() :: fun((User :: ejabberd:user(),
@@ -92,10 +92,10 @@ start() ->
     ets:new(sasl_mechanism, [named_table,
                              public,
                              {keypos, #sasl_mechanism.mechanism}]),
-    cyrsasl_plain:start([]),
-    cyrsasl_digest:start([]),
+    %cyrsasl_plain:start([]),
+    %cyrsasl_digest:start([]),
     cyrsasl_scram:start([]),
-    cyrsasl_anonymous:start([]),
+    %cyrsasl_anonymous:start([]),
     ok.
 
 -spec register_mechanism(Mechanism :: mechanism(),
@@ -163,7 +163,8 @@ listmech(Host) ->
                                  []
                          end,
                          ['$1']}]),
-    filter_anonymous(Host, Mechs).
+    Mechs.
+    %filter_anonymous(Host, Mechs).
 
 -spec server_new(Service :: binary(),
                  ServerFQDN :: ejabberd:server(),

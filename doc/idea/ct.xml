@@ -1,0 +1,21 @@
+<toolSet name="ct">
+  <tool name="embedded" description="run embedded common tests" showInMainMenu="true" showInEditor="false" showInProject="false" showInSearchPopup="false" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="$ProjectFileDir$/rebar" />
+      <option name="PARAMETERS" value="skip_deps=true ct  skip_apps=mysql,pgsql -q" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+    <filter>
+      <option name="NAME" value="ct result" />
+      <option name="DESCRIPTION" />
+      <option name="REGEXP" value="Updating $FILE_PATH$" />
+    </filter>
+  </tool>
+  <tool name="ejabberd__tests" showInMainMenu="true" showInEditor="true" showInProject="true" showInSearchPopup="true" disabled="false" useConsole="true" showConsoleOnStdOut="false" showConsoleOnStdErr="false" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="$ProjectFileDir$/rebar" />
+      <option name="PARAMETERS" value="skip_deps=true ct suites=aft_register case=change_password" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$/test/ejabberd_tests" />
+    </exec>
+  </tool>
+</toolSet>

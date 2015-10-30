@@ -54,15 +54,18 @@
          entropy/1
         ]).
 
+-export([aft_try_register/4]).
+
 -export([check_digest/4]).
 
 -export([auth_modules/1]).
 
 -include("ejabberd.hrl").
+-include("jlib.hrl").
 
 -export_type([authmodule/0]).
 
--type authmodule() :: module().
+-type authmodule() :: ejabberd_auth_odbc.
 
 -define(METRIC(Host, Name), [backends, auth, Host, Name]).
 %%%----------------------------------------------------------------------
@@ -253,7 +256,19 @@ do_set_password(LUser, LServer, Password) ->
               Res
       end, {error, not_allowed}, auth_modules(LServer)).
 
-
+aft_try_register(User, Server, Phone, Nick) ->
+    case lists:member(jlib:nameprep(Server), ?MYHOSTS) of
+        true ->
+            Res = ejabberd_auth_odbc:try_register(User, Server, <<>>, Phone, Nick),
+            case Res of
+                {atomic, ok} ->
+                    ejabberd_hooks:run(register_user, Server, [User, Server]),
+                    {atomic, ok};
+                _ -> Res
+            end;
+        false -> {error, not_allowed}
+    end.
+    
 -spec try_register(User :: ejabberd:user(),
                    Server :: ejabberd:server(),
                    Password :: binary()
@@ -409,7 +424,7 @@ do_get_password_s(LUser, LServer) ->
         end, <<"">>, auth_modules(LServer)).
 
 %% @doc Get the password of the user and the auth module.
--spec get_password_with_authmodule(User :: ejabberd:user(),
+-spec get_password_with_authmodule(User :: ejabberd:user() | {phone, binary()} | {email, binary()},
                                    Server :: ejabberd:server())
       -> {Password::binary(), AuthModule :: authmodule()} | {'false', 'none'}.
 get_password_with_authmodule(User, Server) ->
@@ -577,14 +592,9 @@ auth_modules() ->
 
 %% Return the list of authenticated modules for a given host
 -spec auth_modules(Server :: ejabberd:lserver()) -> [authmodule()].
-auth_modules(LServer) ->
-    Method = ejabberd_config:get_local_option({auth_method, LServer}),
-    Methods = if
-                  Method == undefined -> [];
-                  is_list(Method) -> Method;
-                  is_atom(Method) -> [Method]
-              end,
-    [list_to_atom("ejabberd_auth_" ++ atom_to_list(M)) || M <- Methods].
+auth_modules(_LServer) ->
+    [ejabberd_auth_odbc].
+
 
 ensure_metrics(Host) ->
     Metrics = [check_password, try_register, does_user_exist],
