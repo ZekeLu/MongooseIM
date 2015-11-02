@@ -78,9 +78,10 @@ process_iq(_, _, IQ) ->
 get_members(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = SubEl} = IQ) ->
     UserJid = jlib:jid_to_binary({LUser, LServer, <<>>}),
     GroupId = xml:get_tag_attr_s(<<"groupid">>, SubEl),
+    SinceId = xml:get_tag_attr_s(<<"sinceid">>, SubEl),
     case odbc_groupchat:is_user_in_group(LServer, UserJid, GroupId) of
         true ->
-            case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
+            case odbc_groupchat:get_members_by_groupid(LServer, GroupId, SinceId) of
                 {ok, MembersInfoList} ->
                     IQ#iq{type = result, sub_el = [SubEl#xmlel{children =
                     [{xmlcdata, members_to_json(MembersInfoList)}]}]};
@@ -95,7 +96,8 @@ get_members(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = Su
 %% https://github.com/ZekeLu/MongooseIM/wiki/Extending-XMPP#1-get-all-groups
 get_groups(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = SubEl} = IQ) ->
     UserJid = jlib:jid_to_binary({LUser, LServer, <<>>}),
-    case odbc_groupchat:get_groups_by_jid(LServer, UserJid) of
+    SinceId = xml:get_tag_attr_s(<<"sinceid">>, SubEl),
+    case odbc_groupchat:get_groups_by_jid(LServer, UserJid, SinceId) of
         {ok, Rs} when is_list(Rs) ->
             IQ#iq{type = result, sub_el = [SubEl#xmlel{children = [{xmlcdata, grouplist_to_json(Rs)}]}]};
         {error, _} ->
@@ -162,7 +164,7 @@ add_members(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = Su
                                 [] ->
                                     make_error_reply(IQ, <<"15105">>);
                                 _ ->
-                                    ExistsMembers = [Jid || {Jid, _} <- MembersInfoList],
+                                    ExistsMembers = [Jid || {_, Jid, _} <- MembersInfoList],
                                     NewMembers = lists:filter(fun(X) ->
                                         not lists:member(X, ExistsMembers)
                                     end, MembersList),
@@ -210,7 +212,7 @@ set_groupname(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = 
     UserJid = jlib:jid_to_binary({LUser, LServer, <<>>}),
     case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
         {ok, MembersInfoList} ->
-            MembersList = [Jid || {Jid, _} <- MembersInfoList],
+            MembersList = [Jid || {_, Jid, _} <- MembersInfoList],
             case lists:member(UserJid, MembersList) of
                 true ->
                     GroupName = xml:get_tag_attr_s(<<"groupname">>, SubEl),
@@ -235,7 +237,7 @@ set_avatar(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = Sub
     UserJid = jlib:jid_to_binary({LUser, LServer, <<>>}),
     case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
         {ok, MembersInfoList} ->
-            MembersList = [Jid || {Jid, _} <- MembersInfoList],
+            MembersList = [Jid || {_, Jid, _} <- MembersInfoList],
             case lists:member(UserJid, MembersList) of
                 true ->
                     Avatar = xml:get_tag_attr_s(<<"avatar">>, SubEl),
@@ -262,7 +264,7 @@ set_nickname(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = S
         ok ->
             case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
                 {ok, MembersInfoList} ->
-                    push_groupmember(GroupId, <<>>, <<>>, LServer, [Jid || {Jid, _} <- MembersInfoList],
+                    push_groupmember(GroupId, <<>>, <<>>, LServer, [Jid || {_, Jid, _} <- MembersInfoList],
                         [{UserJid, NickName}], <<"rename">>, UserJid);
                 _ -> nopush
             end,
@@ -283,7 +285,7 @@ complete_task(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = 
                         {ok, Group} ->
                             {ok, R} = odbc_groupchat:get_members_by_groupid(LServer, GroupId),
                             push_groupinfo(Group, LServer,
-                                [Jid || {Jid, _} <- R], <<"complete">>, UserJid);
+                                [Jid || {_, Jid, _} <- R], <<"complete">>, UserJid);
                         _ ->
                             error
                     end,
@@ -330,7 +332,7 @@ dismiss_group(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = 
                     case odbc_groupchat:dismiss_group(LServer, GroupId, MembersInfoList) of
                         ok ->
                             push_groupinfo(#group{groupid = GroupId, groupname = <<>>}, LServer,
-                                [Jid || {Jid, _} <- MembersInfoList], <<"dismiss">>, UserJid),
+                                [Jid || {_, Jid, _} <- MembersInfoList], <<"dismiss">>, UserJid),
                             IQ#iq{type = result, sub_el = [SubEl]};
                         _ ->
                             make_error_reply(IQ, <<"15102">>)
@@ -413,7 +415,7 @@ do_remove_members(#iq{sub_el = SubEl} = IQ, LServer, GroupId, MembersList) ->
         {ok, MembersInfoList} ->
             case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
                 {ok, RemainMembers} ->
-                    RemainJid = [Jid || {Jid, _} <- RemainMembers],
+                    RemainJid = [Jid || {_, Jid, _} <- RemainMembers],
                     push_groupmember(GroupId, <<>>, <<>>, LServer, RemainJid ++ MembersList,
                         MembersInfoList, <<"remove">>, <<>>);
                 _ ->
@@ -474,12 +476,12 @@ groupinfo_json(Group, Action) ->
     iolist_to_binary(mochijson2:encode(JsonArray)).
 
 groupmember_json(MembersInfoList, Action) ->
-    JsonArray = [{struct, [{userjid, Jid}, {nickname, NickName},
-        {action, Action}]} || {Jid, NickName} <- MembersInfoList],
+    JsonArray = [{struct, [{id, Id}, {userjid, Jid}, {nickname, NickName},
+        {action, Action}]} || {Id, Jid, NickName} <- MembersInfoList],
     iolist_to_binary(mochijson2:encode(JsonArray)).
 
 members_to_json(Members) ->
-    JsonArray = [{struct, [{userjid, UserJid}, {nickname, NickName}]} || {UserJid, NickName} <- Members],
+    JsonArray = [{struct, [{id, Id}, {userjid, UserJid}, {nickname, NickName}]} || {Id, UserJid, NickName} <- Members],
     iolist_to_binary(mochijson2:encode(JsonArray)).
 
 record_to_json(Group) ->
