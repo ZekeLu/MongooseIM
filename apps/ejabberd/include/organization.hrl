@@ -14,6 +14,13 @@
     private :: binary()
 }).
 
+-record(groupuser, {
+    id :: binary() | integer() | undefined,
+    groupid :: binary() | integer(),
+    jid :: binary(),
+    nickname :: binary()
+}).
+
 -record(node, {
     id :: integer() | binary()|undefined,
     name :: binary(),

@@ -164,7 +164,7 @@ add_members(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = Su
                                 [] ->
                                     make_error_reply(IQ, <<"15105">>);
                                 _ ->
-                                    ExistsMembers = [Jid || {_, Jid, _} <- MembersInfoList],
+                                    ExistsMembers = [GroupUser#groupuser.jid || GroupUser <- MembersInfoList],
                                     NewMembers = lists:filter(fun(X) ->
                                         not lists:member(X, ExistsMembers)
                                     end, MembersList),
@@ -212,7 +212,7 @@ set_groupname(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = 
     UserJid = jlib:jid_to_binary({LUser, LServer, <<>>}),
     case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
         {ok, MembersInfoList} ->
-            MembersList = [Jid || {_, Jid, _} <- MembersInfoList],
+            MembersList = [GroupUser#groupuser.jid || GroupUser <- MembersInfoList],
             case lists:member(UserJid, MembersList) of
                 true ->
                     GroupName = xml:get_tag_attr_s(<<"groupname">>, SubEl),
@@ -237,7 +237,7 @@ set_avatar(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = Sub
     UserJid = jlib:jid_to_binary({LUser, LServer, <<>>}),
     case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
         {ok, MembersInfoList} ->
-            MembersList = [Jid || {_, Jid, _} <- MembersInfoList],
+            MembersList = [GroupUser#groupuser.jid || GroupUser <- MembersInfoList],
             case lists:member(UserJid, MembersList) of
                 true ->
                     Avatar = xml:get_tag_attr_s(<<"avatar">>, SubEl),
@@ -264,7 +264,7 @@ set_nickname(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = S
         ok ->
             case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
                 {ok, MembersInfoList} ->
-                    push_groupmember(GroupId, <<>>, <<>>, LServer, [Jid || {_, Jid, _} <- MembersInfoList],
+                    push_groupmember(GroupId, <<>>, <<>>, LServer, [GroupUser#groupuser.jid || GroupUser <- MembersInfoList],
                         [{UserJid, NickName}], <<"rename">>, UserJid);
                 _ -> nopush
             end,
@@ -285,7 +285,7 @@ complete_task(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = 
                         {ok, Group} ->
                             {ok, R} = odbc_groupchat:get_members_by_groupid(LServer, GroupId),
                             push_groupinfo(Group, LServer,
-                                [Jid || {_, Jid, _} <- R], <<"complete">>, UserJid);
+                                [GroupUser#groupuser.jid || GroupUser <- R], <<"complete">>, UserJid);
                         _ ->
                             error
                     end,
@@ -332,7 +332,7 @@ dismiss_group(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = 
                     case odbc_groupchat:dismiss_group(LServer, GroupId, MembersInfoList) of
                         ok ->
                             push_groupinfo(#group{groupid = GroupId, groupname = <<>>}, LServer,
-                                [Jid || {_, Jid, _} <- MembersInfoList], <<"dismiss">>, UserJid),
+                                [GroupUser#groupuser.jid || GroupUser <- MembersInfoList], <<"dismiss">>, UserJid),
                             IQ#iq{type = result, sub_el = [SubEl]};
                         _ ->
                             make_error_reply(IQ, <<"15102">>)
@@ -363,10 +363,10 @@ do_create_add(LServer, #iq{sub_el = SubEl} = IQ, #group{master = UserJid,
     groupname = GroupName, type = GroupType} = Group, MembersList) ->
     case odbc_groupchat:create_and_add(LServer, Group, MembersList) of
         {ok, GroupMembersInfo} ->
-            [{GroupId, _, _} | _] = GroupMembersInfo,
-            MembersInfoList = [{Jid, NickName} || {_, Jid, NickName} <- GroupMembersInfo],
-            push_groupmember(GroupId, GroupName, UserJid, LServer, [Jid || {Jid, _} <- MembersInfoList],
-                MembersInfoList, <<"add">>, UserJid),
+            [#groupuser{groupid = GroupId} | _] = GroupMembersInfo,
+            push_groupmember(GroupId, GroupName, UserJid, LServer, [GroupUser#groupuser.jid ||
+                GroupUser <- GroupMembersInfo],
+                GroupMembersInfo, <<"add">>, UserJid),
             IQ#iq{type = result, sub_el = [SubEl#xmlel{
                 attrs = [{<<"xmlns">>, ?NS_GROUPCHAT},
                     {<<"groupid">>, GroupId},
@@ -375,7 +375,7 @@ do_create_add(LServer, #iq{sub_el = SubEl} = IQ, #group{master = UserJid,
                     {<<"master">>, UserJid},
                     {<<"type">>, GroupType}
                 ],
-                children = [{xmlcdata, members_to_json(MembersInfoList)}]}]};
+                children = [{xmlcdata, members_to_json(GroupMembersInfo)}]}]};
         {error, _} ->
             make_error_reply(IQ, <<"15102">>)
     end.
@@ -413,16 +413,21 @@ do_add_members(LServer, Operator, GroupId, ExistsMembers, NewMembers, IQ, SubEl)
 do_remove_members(#iq{sub_el = SubEl} = IQ, LServer, GroupId, MembersList) ->
     case odbc_groupchat:remove_members(LServer, GroupId, MembersList) of
         {ok, MembersInfoList} ->
-            case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
-                {ok, RemainMembers} ->
-                    RemainJid = [Jid || {_, Jid, _} <- RemainMembers],
-                    push_groupmember(GroupId, <<>>, <<>>, LServer, RemainJid ++ MembersList,
-                        MembersInfoList, <<"remove">>, <<>>);
+            case MembersInfoList of
+                [] ->
+                    IQ#iq{type = result, sub_el = [SubEl]};
                 _ ->
-                    push_groupmember(GroupId, <<>>, <<>>, LServer, MembersList,
-                        MembersInfoList, <<"remove">>, <<>>)
-            end,
-            IQ#iq{type = result, sub_el = [SubEl]};
+                    case odbc_groupchat:get_members_by_groupid(LServer, GroupId) of
+                        {ok, RemainMembers} ->
+                            RemainJid = [GroupUser#groupuser.jid || GroupUser <- RemainMembers],
+                            push_groupmember(GroupId, <<>>, <<>>, LServer, RemainJid ++ MembersList,
+                                MembersInfoList, <<"remove">>, <<>>);
+                        _ ->
+                            push_groupmember(GroupId, <<>>, <<>>, LServer, MembersList,
+                                MembersInfoList, <<"remove">>, <<>>)
+                    end,
+                    IQ#iq{type = result, sub_el = [SubEl]}
+            end;
         _ ->
             make_error_reply(IQ, <<"15102">>)
     end.
@@ -476,12 +481,13 @@ groupinfo_json(Group, Action) ->
     iolist_to_binary(mochijson2:encode(JsonArray)).
 
 groupmember_json(MembersInfoList, Action) ->
-    JsonArray = [{struct, [{id, Id}, {userjid, Jid}, {nickname, NickName},
-        {action, Action}]} || {Id, Jid, NickName} <- MembersInfoList],
+    JsonArray = [{struct, [{id, GroupUser#groupuser.id}, {userjid, GroupUser#groupuser.jid},
+        {nickname, GroupUser#groupuser.nickname}, {action, Action}]} || GroupUser <- MembersInfoList],
     iolist_to_binary(mochijson2:encode(JsonArray)).
 
 members_to_json(Members) ->
-    JsonArray = [{struct, [{id, Id}, {userjid, UserJid}, {nickname, NickName}]} || {Id, UserJid, NickName} <- Members],
+    JsonArray = [{struct, [{id, GroupUser#groupuser.id}, {userjid, GroupUser#groupuser.jid},
+        {nickname, GroupUser#groupuser.nickname}]} || GroupUser <- Members],
     iolist_to_binary(mochijson2:encode(JsonArray)).
 
 record_to_json(Group) ->

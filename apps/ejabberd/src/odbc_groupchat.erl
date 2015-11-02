@@ -59,7 +59,7 @@ get_members_by_groupid(LServer, GroupId, SinceId, PageSize) ->
 
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, Rs} ->
-            {ok, Rs};
+            {ok, [#groupuser{id = Id, jid = Jid, nickname = NickName} || {Id, Jid, NickName} <- Rs]};
         Error ->
             {error, Error}
     end.
@@ -142,7 +142,7 @@ add_members(LServer, GroupId, MembersList) ->
             true ->
                 AddQuery = make_add_query(MembersList, [], GroupId),
                 MembersString = join_memberslist(MembersList),
-                SelectQuery = [<<"select jid,nickname from groupuser where groupid ='">>, ejabberd_odbc:escape(GroupId),
+                SelectQuery = [<<"select id,jid,nickname from groupuser where groupid ='">>, ejabberd_odbc:escape(GroupId),
                     <<"' and jid in ('">>, MembersString, <<"');">>],
                 lists:foreach(fun(X) ->
                     ejabberd_odbc:sql_query_t(X)
@@ -155,8 +155,8 @@ add_members(LServer, GroupId, MembersList) ->
         end
     end,
     case ejabberd_odbc:sql_transaction(LServer, F) of
-        {atomic, {selected, [<<"jid">>, <<"nickname">>], Rs}} ->
-            {ok, Rs};
+        {atomic, {selected, _, Rs}} ->
+            {ok, [#groupuser{id = Id, jid = Jid, nickname = NickName} || {Id, Jid, NickName} <- Rs]};
         Error ->
             io:format("add members error:~p~n", [Error]),
             {error, Error}
@@ -180,13 +180,14 @@ create_and_add(LServer, Group, MembersList) ->
         lists:foreach(fun(X) ->
             ejabberd_odbc:sql_query_t(X)
         end, QueryList),
-        ejabberd_odbc:sql_query_t([<<"select groupid,jid,nickname from groupuser where groupid ='">>,
+        ejabberd_odbc:sql_query_t([<<"select id,groupid,jid,nickname from groupuser where groupid ='">>,
             ejabberd_odbc:escape(RId), <<"' and jid <> '">>,
             ejabberd_odbc:escape(Group#group.master), <<"';">>])
     end,
     case ejabberd_odbc:sql_transaction(LServer, F) of
-        {atomic, {selected, [<<"groupid">>, <<"jid">>, <<"nickname">>], Rs}} ->
-            {ok, Rs};
+        {atomic, {selected, _, Rs}} ->
+            {ok, [#groupuser{id = Id, groupid = GroupId, jid = Jid, nickname = NickName}
+                || {Id, GroupId, Jid, NickName} <- Rs]};
         Error ->
             {error, Error}
     end.
@@ -276,7 +277,7 @@ dismiss_group(LServer, GroupId, MembersInfoList) ->
 remove_members(LServer, GroupId, MembersList) ->
     MembersString = join_memberslist(MembersList),
     F = fun() ->
-        Result = ejabberd_odbc:sql_query_t([<<"select jid,nickname from groupuser where groupid ='">>,
+        Result = ejabberd_odbc:sql_query_t([<<"select id,jid,nickname from groupuser where groupid ='">>,
             ejabberd_odbc:escape(GroupId), <<"' and jid in ('">>, MembersString, <<"');">>]),
         ejabberd_odbc:sql_query_t([<<"delete from groupuser where groupid ='">>, ejabberd_odbc:escape(GroupId),
             <<"' and jid in ('">>, MembersString, <<"');">>]),
@@ -284,8 +285,9 @@ remove_members(LServer, GroupId, MembersList) ->
     end,
     T = ejabberd_odbc:sql_transaction(LServer, F),
     case T of
-        {atomic, {selected, [<<"jid">>, <<"nickname">>], Rs}} ->
-            {ok, Rs};
+        {atomic, {selected, _, Rs}} ->
+            {ok, [#groupuser{id = Id, jid = Jid, nickname = NickName}
+                || {Id, Jid, NickName} <- Rs]};
         Error ->
             {error, Error}
     end.
