@@ -1003,8 +1003,15 @@ session_established2(El, StateData) ->
                     ejabberd_hooks:run(user_send_packet,
                                        Server,
                                        [FromJID, ToJID, NewEl]),
-                    check_privacy_route(FromJID, StateData, FromJID,
-                                        ToJID, NewEl),
+                    %% the hook to filter all user sent messages.
+                    %% expected result: FilteredEl | drop
+                    case ejabberd_hooks:run_fold(filter_user_send_message, NewEl, []) of
+                        drop ->
+                            ?DEBUG("drop packet=~p~n", [NewEl]);
+                        FilteredEl ->
+                            check_privacy_route(FromJID, StateData, FromJID,
+                                ToJID, FilteredEl)
+                    end,
                     StateData;
                 _ ->
                     StateData

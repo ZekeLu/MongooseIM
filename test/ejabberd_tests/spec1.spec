@@ -8,6 +8,18 @@
 %% For more info see:
 %% http://www.erlang.org/doc/apps/common_test/run_test_chapter.html#test_specifications
 
+
+%% Add by sharp.
+%% new test add a ct_hook 'ct_mongoose_hook', this hook will show many logs like:
+%% "Suite: adhoc_SUITE finished dirty. Other suites may fail because of that. Details:
+%%  [{registered_users_count,2}]"
+%% ct_mongoose_hook rpc 'ejabberd_auth:do_get_vh_registered_users_number/1' function,
+%% this function use "select table_rows from information_schema.tables where table_name='users'"
+%% to get uses number after removed, as 'select table_rows' is a way to estimate table rows,
+%% it is not accurate when table rows is few.
+
+
+
 %% do not remove below SUITE if testing mongoose
 {suites, "tests", mongoose_sanity_checks_SUITE}.
 

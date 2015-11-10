@@ -778,9 +778,9 @@ try_distribute_group_message(From, To, Packet) ->
                                     OriginalAttrs = Packet#xmlel.attrs,
                                     TempAttrs = lists:keydelete(<<"to">>, 1, lists:keydelete(<<"from">>, 1, OriginalAttrs)),
                                     Attrs = [{<<"from">>, GroupJidBin} | TempAttrs],
-                                    lists:foreach(fun({MemberJidBin, _Nickname}) when MemberJidBin =:= SenderJidBin ->
+                                    lists:foreach(fun({groupuser, _, _, MemberJidBin, _}) when MemberJidBin =:= SenderJidBin ->
                                         ok;
-                                        ({MemberJidBin, _Nickname}) ->
+                                        ({groupuser, _, _, MemberJidBin, _}) ->
                                             do_route_message(GroupJid,
                                                 jlib:binary_to_jid(MemberJidBin),
                                                 Packet#xmlel{

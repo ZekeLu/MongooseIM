@@ -388,8 +388,14 @@ do_get_vh_registered_users_number(LServer, Opts) ->
 
 
 %% @doc Get the password of the user.
--spec get_password(User :: ejabberd:user(),
+-spec get_password(User :: ejabberd:user() | {phone, binary()} | {email, binary()},
                    Server :: ejabberd:server()) -> binary() | false.
+get_password({phone, _Phone} = User, Server) ->
+    LServer = jlib:nameprep(Server),
+    do_get_password(User, LServer);
+get_password({email, _Email} = User, Server) ->
+    LServer = jlib:nameprep(Server),
+    do_get_password(User, LServer);
 get_password(User, Server) ->
     LUser = jlib:nodeprep(User),
     LServer = jlib:nameprep(Server),
@@ -427,6 +433,12 @@ do_get_password_s(LUser, LServer) ->
 -spec get_password_with_authmodule(User :: ejabberd:user() | {phone, binary()} | {email, binary()},
                                    Server :: ejabberd:server())
       -> {Password::binary(), AuthModule :: authmodule()} | {'false', 'none'}.
+get_password_with_authmodule({phone, _Phone} = User, Server) ->
+    LServer = jlib:nameprep(Server),
+    do_get_password_with_authmodule(User, LServer);
+get_password_with_authmodule({email, _Email} = User, Server) ->
+    LServer = jlib:nameprep(Server),
+    do_get_password_with_authmodule(User, LServer);
 get_password_with_authmodule(User, Server) ->
     LUser = jlib:nodeprep(User),
     LServer = jlib:nameprep(Server),

@@ -13,3 +13,5 @@ echo ""
 
 make devclean devrel
 
+make rel
+

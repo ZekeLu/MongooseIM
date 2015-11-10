@@ -233,10 +233,10 @@ get_vh_registered_users_number(LServer, Opts) ->
 
 -spec get_password(User :: ejabberd:luser() | {phone, binary()} | {email, binary()},
                    Server :: ejabberd:lserver()) -> binary() | {ejabberd:user(), binary()} | false.
-get_password({phone, Phone}, Server) ->
-    do_get_password({phone, ejabberd_odbc:escape(Phone)}, Server);
-get_password({email, Email}, Server) ->
-    do_get_password({email, ejabberd_odbc:escape(Email)}, Server);
+get_password({phone, Phone}, LServer) ->
+    do_get_password({phone, ejabberd_odbc:escape(Phone)}, LServer);
+get_password({email, Email}, LServer) ->
+    do_get_password({email, ejabberd_odbc:escape(Email)}, LServer);
 get_password(LUser, LServer) ->
     Username = ejabberd_odbc:escape(LUser),
     case do_get_password(Username, LServer) of

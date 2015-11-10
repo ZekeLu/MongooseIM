@@ -327,6 +327,7 @@ is_interesting_packet(Packet) ->
 is_interesting_packet_type(<<"error">>)     -> false;
 is_interesting_packet_type(<<"groupchat">>) -> false;
 is_interesting_packet_type(<<"headline">>)  -> false;
+is_interesting_packet_type(<<"notice">>)    -> false; %% ignore groupchat, project push message.
 is_interesting_packet_type(_)               -> true.
 
 %% Check if the packet has any content about XEP-0022 or XEP-0085
