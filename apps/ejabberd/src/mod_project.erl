@@ -808,14 +808,15 @@ add_job_ex(LServer, ProID, BaseJID, ParentJobID, JobName, Part) ->
                     case Valid of
                         false -> {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH};
                         true ->
-                            if ParentPart =:= Part ->
-                                case odbc_organization:add_node(LServer, ParentJobID, #node{name = JobName, department = Part}) of
-                                    {ok, JobTag, #node{id = Id, lft = Left, rgt = Right}} ->
-                                        {ok, build_json([{"project", ProID}, {"job", {["id", "name", "left", "right", "part"],
-                                            [{Id, JobName, Left, Right, Part}], false}}], <<>>), JobTag};
-                                    {error, _} ->
-                                        {error, ?AFT_ERR_DATABASE}
-                                end;
+                            if
+                                ParentPart =:= Part ->
+                                    case odbc_organization:add_node(LServer, ParentJobID, #node{name = JobName, department = Part}) of
+                                        {ok, JobTag, #node{id = Id, lft = Left, rgt = Right}} ->
+                                            {ok, build_json([{"project", ProID}, {"job", {["id", "name", "left", "right", "part"],
+                                                [{Id, JobName, Left, Right, Part}], false}}], <<>>), JobTag};
+                                        {error, _} ->
+                                            {error, ?AFT_ERR_DATABASE}
+                                    end;
                                 true ->
                                     case odbc_organization:get_department_member_parent(LServer, ProID, Part) of
                                         {ok, ParentJobList} ->

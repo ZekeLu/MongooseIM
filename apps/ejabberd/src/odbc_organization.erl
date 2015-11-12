@@ -183,7 +183,7 @@ get_department_member_parent(LServer, Project, Department) ->
     Query = ["select o1.id from organization as o1 join (select lft, rgt, project from organization where project='", Project,
         "' and department='", ejabberd_odbc:escape(Department), "' limit 1) as o2 on o1.lft < o2.lft and o1.rgt > o2.rgt where o1.project='", Project, "';" ],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"id">>, Rs]} ->
+        {selected, [<<"id">>], Rs} ->
             {ok, Rs};
         Reason ->
             {error, Reason}
