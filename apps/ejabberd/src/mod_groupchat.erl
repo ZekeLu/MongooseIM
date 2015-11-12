@@ -455,7 +455,7 @@ push(GroupId, Server, Attrs, Contents, ToList) ->
     From = jlib:jid_to_binary({GroupId, Server, <<>>}),
     LangAttr = {<<"xml:lang">>, <<"en">>},
     FromAttr = {<<"from">>, From},
-    TypeAttr = {<<"type">>, <<"notice">>},
+    TypeAttr = {<<"type">>, <<"normal">>},
     Packet = {xmlel, <<"message">>, [],
         [{xmlel, <<"push">>, Attrs,
             [{xmlcdata, Contents}]}

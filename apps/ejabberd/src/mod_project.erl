@@ -1085,7 +1085,7 @@ push_message(ProID, Server, ToList, Type, Contents) ->
     From = jlib:jid_to_binary({ProID, Server, <<>>}),
     LangAttr = {<<"xml:lang">>, <<"en">>},
     FromAttr = {<<"from">>, From},
-    TypeAttr = {<<"type">>, <<"notice">>},
+    TypeAttr = {<<"type">>, <<"normal">>},
     FromJID = jlib:make_jid(ProID, Server, <<>>),
     SubAttrs = [{<<"xmlns">>, ?NS_AFT_PROJECT}, {<<"type">>, Type}, {<<"projectid">>, ProID}],
     Packet = {xmlel, <<"message">>, [], [{xmlel, <<"sys">>, SubAttrs, [{xmlcdata, Contents}]}]},
