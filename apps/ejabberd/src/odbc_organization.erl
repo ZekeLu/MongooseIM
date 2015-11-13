@@ -46,6 +46,7 @@
          get_department_member_parent/3,
          get_task_jid/3,
          is_child/6,
+         is_child/4,
          get_task/5,
          delete_task/3
         ]).
@@ -670,6 +671,17 @@ is_child(LServer, Project, JID1, Job1, JID2, Job2) ->
         "organization as o on o1.lft>o.lft and o1.rgt<o.rgt and o1.project='", Project, "' join organization_user as ou ",
         "on o.id=ou.organization and ou.organization='", Job1, "' and ou.jid='", JID1, "' where ou1.jid='",
         JID2,"' and ou1.organization='", Job2, "';"],
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        {selected, _, [{<<"1">>}]} ->
+            true;
+        _ ->
+            false
+    end.
+
+%% check Job2 is child job of Job1 in Project
+is_child(LServer, Project, Job1, Job2) ->
+    Query = ["select count(o.id) from organization as o, (select lft, rgt from organization where id='", Job1, "' and project='",
+        Project, "') ", "as o1 where o.id='", Job2, "' and o.project='", Project, "' and o.lft>o1.lft and o.rgt<o1.rgt;"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, [{<<"1">>}]} ->
             true;

@@ -272,11 +272,12 @@ add_job(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     BaseJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, ProID} = lists:keyfind(<<"project">>, 1, Data),
+    {_, SelfJobID} = lists:keyfind(<<"self_job_id">>, 1, Data),
     {_, ParentJobID} = lists:keyfind(<<"parent_job_id">>, 1, Data),
     {_, JobName} = lists:keyfind(<<"job_name">>, 1, Data),
     {_, Part} = lists:keyfind(<<"part">>, 1, Data),
 
-    case add_job_ex(S, ProID, BaseJID, ParentJobID, JobName, Part) of
+    case add_job_ex(S, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result, JobTag} ->
@@ -793,7 +794,7 @@ add_member_ex(LServer, ProID, BaseJID, List) ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
-add_job_ex(LServer, ProID, BaseJID, ParentJobID, JobName, Part) ->
+add_job_ex(LServer, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part) ->
     case odbc_organization:project_status(LServer, ProID) of
         {ok, [{<<"1">>}]} ->
             case odbc_organization:get_job_info(LServer, ParentJobID) of
@@ -802,7 +803,11 @@ add_job_ex(LServer, ProID, BaseJID, ParentJobID, JobName, Part) ->
                 {ok, [{_, _, _, _, _, ParentPart, _}]} ->
                     Valid = case is_admin(LServer, BaseJID, ProID) of
                                 false ->
-                                    odbc_organization:is_member2(LServer, ProID, ParentJobID, BaseJID);
+                                    %%odbc_organization:is_member2(LServer, ProID, ParentJobID, BaseJID);
+                                    if
+                                        SelfJobID =:= ParentJobID -> true;
+                                        true -> odbc_organization:is_child(LServer, ProID, SelfJobID, ParentJobID)
+                                    end;
                                 true -> true
                             end,
                     case Valid of
@@ -825,7 +830,7 @@ add_job_ex(LServer, ProID, BaseJID, ParentJobID, JobName, Part) ->
                                                     case odbc_organization:add_node(LServer, ParentJobID, #node{name = JobName, department = Part}) of
                                                         {ok, JobTag, #node{id = Id, lft = Left, rgt = Right}} ->
                                                             {ok, build_json([{"project", ProID}, {"job", {["id", "name", "left", "right", "part"],
-                                                                [Id, JobName, Left, Right, Part], false}}], <<>>), JobTag};
+                                                                [{Id, JobName, Left, Right, Part}], false}}], <<>>), JobTag};
                                                         {error, _} ->
                                                             {error, ?AFT_ERR_DATABASE}
                                                     end;
