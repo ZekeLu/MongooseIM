@@ -1083,9 +1083,10 @@ clear_trash_ex(LServer, BareJID, Project) ->
                              {selected, _, [{BareJID}]} -> " or folder.owner='admin');";
                              _ -> " );"
                          end,
+
             F = fun() ->
-                ejabberd_odbc:sql_query_t(DeleteVersionFile, AdminOrNot),
-                ejabberd_odbc:sql_query_t(DeleteFile, AdminOrNot),
+                ejabberd_odbc:sql_query_t([DeleteVersionFile, AdminOrNot]),
+                ejabberd_odbc:sql_query_t([DeleteFile, AdminOrNot]),
                 ejabberd_odbc:sql_query_t([DeleteFolder, AdminOrNot]),
                 ok
             end,

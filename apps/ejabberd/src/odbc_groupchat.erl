@@ -338,7 +338,7 @@ is_user_own_group(LServer, UserJid, GroupId) ->
 -spec is_in_project(binary(), [binary()], binary()) -> true | {false, [binary()]} | {error, _}.
 is_in_project(LServer, JidList, Project) ->
     Jids = binary_join(JidList, <<"','">>),
-    Query = ["select jid from organization_user as ou, organization as o, where o.project ='", Project,
+    Query = ["select jid from organization_user as ou, organization as o where o.project ='", Project,
         "' and ou.jid in ('", Jids, "');"],
     %%Query = [<<"select jid from organization_user where jid in ('">>, Jids, "') and project = ", Project, ";"],
     case ejabberd_odbc:sql_query(LServer, Query) of

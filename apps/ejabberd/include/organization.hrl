@@ -28,6 +28,7 @@
     rgt :: binary() | integer(),
     depth :: binary() | integer(),
     department :: binary(),
+    department_level :: binary(),
     project :: binary() | integer()
 }).
 

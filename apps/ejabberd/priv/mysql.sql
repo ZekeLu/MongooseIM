@@ -374,6 +374,7 @@ CREATE TABLE organization (
     rgt int NOT NULL,
     depth int NOT NULL,
     department varchar(250) CHARACTER SET binary,
+    department_level int NOT NULL,
     project int NOT NULL
 ) CHARACTER SET utf8;
 CREATE INDEX organization_tree_index ON organization (project);
@@ -416,8 +417,6 @@ CREATE TABLE project_link (
 ) CHARACTER SET utf8;
 
 CREATE INDEX project_link_id2_index ON project_link(id2);
-
-
 -- organization end
 
 -- favorite begin

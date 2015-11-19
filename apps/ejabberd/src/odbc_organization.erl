@@ -43,7 +43,7 @@
          unsubscribed/3,
          unsubscribe/3,
          get_job_info/2,
-         get_department_member_parent/3,
+         get_department_member_parent/4,
          get_task_jid/3,
          is_child/6,
          is_child/4,
@@ -70,7 +70,6 @@ get_all(LServer, Project) ->
 
 -spec get_all_jid(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
 get_all_jid(LServer, Project) ->
-    %Query = ["select jid from organization_user where project=", Project, ";"], src
     Query = ["select jid from organization_user as ou join organization as o on o.project='", Project, "' and o.id=ou.organization;"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, [<<"jid">>], Rs} ->
@@ -118,9 +117,9 @@ get_parents(LServer, #node{lft = Left, rgt = Right, project = Project}) ->
 
 -spec get_structure(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
 get_structure(LServer, Project) ->
-    Query = ["select id, name, lft, rgt, department from organization where project='", Project, "';"],
+    Query = ["select id, name, lft, rgt, department, department_level from organization where project='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"id">>, <<"name">>, <<"lft">>, <<"rgt">>, <<"department">>], Rs } ->
+        {selected, [<<"id">>, <<"name">>, <<"lft">>, <<"rgt">>, <<"department">>, <<"department_level">>], Rs } ->
             {ok, Rs};
         Reason ->
             {error, Reason}
@@ -128,9 +127,9 @@ get_structure(LServer, Project) ->
 
 -spec get_all_nodes(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
 get_all_nodes(LServer, Project) ->
-    Query = ["select id, name, department from organization where project = '", Project, "';"],
+    Query = ["select id, name, department, department_level from organization where project = '", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"id">>, <<"name">>, <<"department">>], Rs } ->
+        {selected, _, Rs } ->
             {ok, Rs};
         Reason ->
             {error, Reason}
@@ -139,7 +138,7 @@ get_all_nodes(LServer, Project) ->
 -spec get_link_project(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
 get_link_project(LServer, Project) ->
     Query = ["select pl1.id2, p.name, p.photo, p.job_tag, p.member_tag from project_link as pl1 join project_link as pl2 ",
-            "on pl2.id2='", Project, "' and pl2.id1=pl1.id2 join project as p on pl1.id1 = p.id where pl1.id1='", Project, "';"],
+            "on pl2.id2='", Project, "' and pl2.id1=pl1.id2 join project as p on pl1.id2 = p.id where pl1.id1='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, [<<"id2">>, <<"name">>, <<"photo">>, <<"job_tag">>, <<"member_tag">>], Rs } ->
             {ok, Rs};
@@ -151,7 +150,6 @@ get_link_project(LServer, Project) ->
 is_memeber(LServer, Project, Jid) ->
     Query = ["select count(ou.id) from organization_user as ou, organization as o where o.id=ou.organization and o.project='",
         Project, "' and ou.jid='", ejabberd_odbc:escape(Jid), "';"],
-    %%Query = ["select count(id) from organization_user where project ='", Project, "' and jid = '", ejabberd_odbc:escape(Jid), "';"], src
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, [{<<"0">>}]} ->
             Query1 = ["select count(id) from project where id ='", Project, "' and admin ='", ejabberd_odbc:escape(Jid), "';"],
@@ -179,10 +177,11 @@ is_member2(LServer, Project, JobID, JID) ->
     end.
 
 %% get a random member in department, then get it all parent job id.
--spec get_department_member_parent(binary(), odbc_organization:pro_type(), binary()) -> {ok, list()} | {error, _}.
-get_department_member_parent(LServer, Project, Department) ->
+-spec get_department_member_parent(binary(), odbc_organization:pro_type(), binary(), binary()) -> {ok, list()} | {error, _}.
+get_department_member_parent(LServer, Project, Department, DepartmentLevel) ->
     Query = ["select o1.id from organization as o1 join (select lft, rgt, project from organization where project='", Project,
-        "' and department='", ejabberd_odbc:escape(Department), "' limit 1) as o2 on o1.lft < o2.lft and o1.rgt > o2.rgt where o1.project='", Project, "';" ],
+        "' and department='", ejabberd_odbc:escape(Department), "' and department_level='", ejabberd_odbc:escape(DepartmentLevel),
+        "' limit 1) as o2 on o1.lft < o2.lft and o1.rgt > o2.rgt where o1.project='", Project, "';" ],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, [<<"id">>], Rs} ->
             {ok, Rs};
@@ -192,9 +191,9 @@ get_department_member_parent(LServer, Project, Department) ->
 
 -spec get_job_info(binary(), binary()) -> {ok, list()} | {error, _}.
 get_job_info(LServer, Job) ->
-    Query = ["select id, name, lft, rgt, depth, department, project from organization where id ='", Job, "';" ],
+    Query = ["select id, name, lft, rgt, depth, department, department_level, project from organization where id ='", Job, "';" ],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"id">>, <<"name">>, <<"lft">>, <<"rgt">>, <<"depth">>, <<"department">>, <<"project">>], Rs} ->
+        {selected, _, Rs} ->
             {ok, Rs};
         Reason ->
             {error, Reason}
@@ -214,12 +213,12 @@ get_job_info(LServer, Job) ->
 
 -spec get_children_job(binary(), binary(), odbc_organization:pro_type()) -> {ok, _} | {error, _}.
 get_children_job(LServer, Id, Project) ->
-    Query = ["select o1.id, o1.name, o1.department from organization as o1 join organization as o2 on o1.lft>o2.lft and o1.rgt<o2.rgt ",
+    Query = ["select o1.id, o1.name, o1.department, o1.department_level from organization as o1 join organization as o2 on o1.lft>o2.lft and o1.rgt<o2.rgt ",
         " and o2.id='", Id, "' where o1.project='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"id">>, <<"name">>, <<"department">>], []} ->
+        {selected, [<<"id">>, <<"name">>, <<"department">>, <<"department_level">>], []} ->
             {error, no_exists};
-        {selected, [<<"id">>, <<"name">>, <<"department">>], Rs} ->
+        {selected, [<<"id">>, <<"name">>, <<"department">>, <<"department_level">>], Rs} ->
             {ok, Rs};
         Reason ->
             {error, Reason}
@@ -272,7 +271,7 @@ update_node(LServer, #node{id = Id}, NewName) ->
     end.
 
 -spec add_node(binary(), integer(), #node{}) -> {ok, #node{}} | {error, _}.
-add_node(LServer, ParentId, #node{name = Name, department = Department} = _Node) ->
+add_node(LServer, ParentId, #node{name = Name, department = Department, department_level = DepartmentLevel} = _Node) ->
     TimeString = now_random(),
     F = fun() ->
         {selected, [<<"lft">>, <<"rgt">>, <<"depth">>, <<"project">>], [{Left, Right, Depth, Project}]} =
@@ -281,9 +280,9 @@ add_node(LServer, ParentId, #node{name = Name, department = Department} = _Node)
         Query = [
             ["update organization set lft=lft+2 where lft > ", Left, " and project = ", Project, ";"],
             ["update organization set rgt=rgt+2 where rgt > ", Left, " and project = ", Project, ";"],
-            ["insert into organization(name,lft,rgt,depth,department,project) values('",
+            ["insert into organization(name,lft,rgt,depth,department,department_level,project) values('",
                 ejabberd_odbc:escape(Name), "',", Left1, ",", Right1, ",", Depth1, ",'",
-                ejabberd_odbc:escape(Department), "',", Project, ");"],
+                ejabberd_odbc:escape(Department), "','", DepartmentLevel, "',", Project, ");"],
             ["update project set job_tag='", TimeString, "' where id='", Project, "';"]
 
         ],
@@ -404,19 +403,20 @@ add_project(LServer, #project{name = Name, description = Desc, admin = Admin}, T
             ejabberd_odbc:escape(Admin), "','", TimeString, "','", TimeString, "','", TimeString, "');"],
         ejabberd_odbc:sql_query_t(Query1),
         {selected, [<<"id">>, <<"start_at">>], [{Id, StartTime}]} = ejabberd_odbc:sql_query_t(["select id, start_at from project where id=last_insert_id();"]),
-        Query2 = ["insert into organization(name,lft,rgt,depth,department,project) select name,lft,rgt,depth,department,",
+        Query2 = ["insert into organization(name,lft,rgt,depth,department,department_level,project) select name,lft,rgt,depth,department,department_level,",
             Id, " from organization where project =", TemplateId, ";"],
         ejabberd_odbc:sql_query_t(Query2),
-        Query3 = ["select o1.id, o1.name, o1.lft, o1.rgt, o1.department from organization o1, organization o2 where o1.lft=o2.lft and o2.id='", Job, "' and o1.project='", Id, "';"],
-        {selected, [<<"id">>, <<"name">>, <<"lft">>, <<"rgt">>, <<"department">>], [{NewJob, JobName, Left, Right, Department}]} = ejabberd_odbc:sql_query_t(Query3),
+        Query3 = ["select o1.id, o1.name, o1.lft, o1.rgt, o1.department, o1.department_level from organization o1, organization o2 where o1.lft=o2.lft and o2.id='",
+            Job, "' and o1.project='", Id, "';"],
+        {selected, _, [{NewJob, JobName, Left, Right, Department, DepartmentLevel}]} = ejabberd_odbc:sql_query_t(Query3),
         Query4 = ["insert into organization_user(organization, jid) values('", NewJob, "', '", Admin, "');"],
         ejabberd_odbc:sql_query_t(Query4),
-        {Id, StartTime, Photo, NewJob, JobName, Left, Right, Department}
+        {Id, StartTime, Photo, NewJob, JobName, Left, Right, Department, DepartmentLevel}
     end,
     case ejabberd_odbc:sql_transaction(LServer, F) of
-        {atomic, {Id, StartTime, Photo, NewJob, JobName, Left, Right, Department}} ->
+        {atomic, {Id, StartTime, Photo, NewJob, JobName, Left, Right, Department, DepartmentLevel}} ->
             {ok, #project{id = Id, name = Name, description = Desc, photo = Photo, job_tag = TimeString, start_at = StartTime},
-                #node{id = NewJob, name = JobName, lft = Left, rgt = Right, department = Department}};
+                #node{id = NewJob, name = JobName, lft = Left, rgt = Right, department = Department, department_level = DepartmentLevel}};
         Reason ->
             {error, Reason}
     end.

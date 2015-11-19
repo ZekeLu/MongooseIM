@@ -276,16 +276,19 @@ add_job(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     {_, ParentJobID} = lists:keyfind(<<"parent_job_id">>, 1, Data),
     {_, JobName} = lists:keyfind(<<"job_name">>, 1, Data),
     {_, Part} = lists:keyfind(<<"part">>, 1, Data),
+    {_, PartLevel} = lists:keyfind(<<"part_level">>, 1, Data),
 
-    case add_job_ex(S, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part) of
+    case add_job_ex(S, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part, PartLevel) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
-        {ok, Result, JobTag} ->
+        %%{ok, Result, JobTag} ->
+        {ok, JobTag} ->
             {ok, AllMembers} = odbc_organization:get_all_jid(S, ProID),
             Content = <<"{\"job_tag\":\"", JobTag/binary, "\"}">>,
             push_message(ProID, S, AllMembers, <<"add_job">>, Content),
-            IQ#iq{type = result,
-                  sub_el = [SubEl#xmlel{children = [{xmlcdata, Result}]}]}
+            %IQ#iq{type = result,
+            %      sub_el = [SubEl#xmlel{children = [{xmlcdata, Result}]}]}
+            IQ#iq{type = result}
     end;
 add_job(_, _, IQ) ->
     IQ#iq{type = error, sub_el = [?ERR_BAD_REQUEST]}.
@@ -597,8 +600,8 @@ get_structure_ex(LServer, BaseJID, ProID, ProjectTarget, Template) ->
     case Valid of
         {true, Project} ->
             {ok, Result} = odbc_organization:get_structure(LServer, Project),
-            Json1 = [{struct,[{<<"id">>, R1}, {<<"name">>, R2}, {<<"left">>, R3}, {<<"right">>, R4}, {<<"part">>, R5}]}
-                     || {R1, R2, R3, R4, R5}<- Result],
+            Json1 = [{struct,[{<<"id">>, R1}, {<<"name">>, R2}, {<<"left">>, R3}, {<<"right">>, R4}, {<<"part">>, R5}, {<<"part_level">>, R6}]}
+                     || {R1, R2, R3, R4, R5, R6}<- Result],
             F = mochijson2:encoder([{utf8, true}]),
             Json = iolist_to_binary( F( {struct, [{<<"project">>, Project}, {<<"structure">>, Json1}]} )),
             {ok, Json};
@@ -613,17 +616,17 @@ create_ex(LServer, ProjectName, BaseJID, Template, Job) ->
                 {ok, true} ->
                     case odbc_organization:add_project(LServer, #project{name = ProjectName, description = <<"">>, admin = BaseJID}, Template, Job) of
                         {ok, #project{id = Id, name = _Name, photo = Photo ,description = _Desc, job_tag = JobTag, start_at = StartTime},
-                         #node{id = JobId, name=JobName, lft = Left, rgt = Right, department = Part}} ->
+                         #node{id = JobId, name=JobName, lft = Left, rgt = Right, department = Part, department_level = PartLevel}} ->
                             PhotoURL = list_to_binary(make_head_url(binary_to_list(Photo))),
                             ejabberd_hooks:run(create_project, LServer, [LServer, Id]),
                             {ok, <<"{\"project\":{\"id\":\"", Id/binary, "\",\"name\":\"", ProjectName/binary,
                                     "\",\"photo\":\"", PhotoURL/binary, "\",\"job_tag\":\"", JobTag/binary,
                                     "\",\"member_tag\":\"", JobTag/binary, "\",\"link_tag\":\"", JobTag/binary,
-                                    "\",\"start_time\":\"", StartTime/binary, "\"},
-                                    \"job\":{\"job_id\":\"", JobId/binary, "\",\"job_name\":\"", JobName/binary,
+                                    "\",\"start_time\":\"", StartTime/binary,
+                                    "\"},\"job\":{\"job_id\":\"", JobId/binary, "\",\"job_name\":\"", JobName/binary,
                                     "\",\"left\":\"", Left/binary, "\",\"right\":\"", Right/binary,
-                                    "\",\"part\":\"", Part/binary, "\"},
-                                    \"member\":{\"jid\":\"", BaseJID/binary, "\"}}">>};
+                                    "\",\"part\":\"", Part/binary, "\",\"part_level\":\"", PartLevel/binary,
+                                    "\"},\"member\":{\"jid\":\"", BaseJID/binary, "\"}}">>};
                         {error, _} ->
                             ?ERROR_MSG("Create Project failed, ProjectName=~p.", [ProjectName]),
                             {error, ?AFT_ERR_DATABASE}
@@ -713,8 +716,8 @@ list_children_jobs_ex(LServer, JID, ProID, Job) ->
         true ->
             {ok, Result} = odbc_organization:get_all_nodes(LServer, ProID),
             %%{ok, build_json(["job_id", "job_name", "part"], Result, true, ProID)};
-            Json = [{struct, [{<<"job_id">>, R1}, {<<"job_name">>, R2}, {<<"part">>, R3}]}
-                    || {R1, R2, R3} <- Result],
+            Json = [{struct, [{<<"job_id">>, R1}, {<<"job_name">>, R2}, {<<"part">>, R3}, {<<"part_level">>, R4}]}
+                    || {R1, R2, R3, R4} <- Result],
             F = mochijson2:encoder([{utf8, true}]),
             {ok, iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"job">>, Json}]}))};
         false ->
@@ -724,8 +727,8 @@ list_children_jobs_ex(LServer, JID, ProID, Job) ->
                 true ->
                     {ok, Result} = odbc_organization:get_children_job(LServer, Job, ProID),
                     %{ok, build_json(["job_id", "job_name", "part"], Result, true, ProID)}
-                    Json = [{struct, [{<<"job_id">>, R1}, {<<"job_name">>, R2}, {<<"part">>, R3}]}
-                            || {R1, R2, R3} <- Result],
+                    Json = [{struct, [{<<"job_id">>, R1}, {<<"job_name">>, R2}, {<<"part">>, R3}, {<<"part_level">>, R4}]}
+                            || {R1, R2, R3, R4} <- Result],
                     F = mochijson2:encoder([{utf8, true}]),
                     {ok, iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"job">>, Json}]}))}
             end
@@ -794,16 +797,15 @@ add_member_ex(LServer, ProID, BaseJID, List) ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
-add_job_ex(LServer, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part) ->
+add_job_ex(LServer, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part, PartLevel) ->
     case odbc_organization:project_status(LServer, ProID) of
         {ok, [{<<"1">>}]} ->
             case odbc_organization:get_job_info(LServer, ParentJobID) of
                 {ok, []} ->
                     {error, ?AFT_ERR_PARENT_NOT_EXIST};
-                {ok, [{_, _, _, _, _, ParentPart, _}]} ->
+                {ok, [{_, _, _, _, _, ParentPart, ParentPartLevel, _}]} ->
                     Valid = case is_admin(LServer, BaseJID, ProID) of
                                 false ->
-                                    %%odbc_organization:is_member2(LServer, ProID, ParentJobID, BaseJID);
                                     if
                                         SelfJobID =:= ParentJobID -> true;
                                         true -> odbc_organization:is_child(LServer, ProID, SelfJobID, ParentJobID)
@@ -815,22 +817,24 @@ add_job_ex(LServer, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part) ->
                         true ->
                             if
                                 ParentPart =:= Part ->
-                                    case odbc_organization:add_node(LServer, ParentJobID, #node{name = JobName, department = Part}) of
+                                    case odbc_organization:add_node(LServer, ParentJobID, #node{name = JobName, department = Part, department_level = ParentPartLevel}) of
                                         {ok, JobTag, #node{id = Id, lft = Left, rgt = Right}} ->
-                                            {ok, build_json([{"project", ProID}, {"job", {["id", "name", "left", "right", "part"],
-                                                [{Id, JobName, Left, Right, Part}], false}}], <<>>), JobTag};
+                                            %%{ok, build_json([{"project", ProID}, {"job", {["id", "name", "left", "right", "part"],
+                                            %%    [{Id, JobName, Left, Right, Part}], false}}], <<>>), JobTag};
+                                            {ok, JobTag};
                                         {error, _} ->
                                             {error, ?AFT_ERR_DATABASE}
                                     end;
                                 true ->
-                                    case odbc_organization:get_department_member_parent(LServer, ProID, Part) of
+                                    case odbc_organization:get_department_member_parent(LServer, ProID, Part, PartLevel) of
                                         {ok, ParentJobList} ->
                                             case lists:member({ParentJobID}, ParentJobList) of
                                                 true ->
-                                                    case odbc_organization:add_node(LServer, ParentJobID, #node{name = JobName, department = Part}) of
+                                                    case odbc_organization:add_node(LServer, ParentJobID, #node{name = JobName, department = Part, department_level = PartLevel}) of
                                                         {ok, JobTag, #node{id = Id, lft = Left, rgt = Right}} ->
-                                                            {ok, build_json([{"project", ProID}, {"job", {["id", "name", "left", "right", "part"],
-                                                                [{Id, JobName, Left, Right, Part}], false}}], <<>>), JobTag};
+                                                            %%{ok, build_json([{"project", ProID}, {"job", {["id", "name", "left", "right", "part"],
+                                                            %%    [{Id, JobName, Left, Right, Part}], false}}], <<>>), JobTag};
+                                                            {ok, JobTag};
                                                         {error, _} ->
                                                             {error, ?AFT_ERR_DATABASE}
                                                     end;
