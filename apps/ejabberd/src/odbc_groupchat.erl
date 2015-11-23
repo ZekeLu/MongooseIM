@@ -77,8 +77,8 @@ get_groups_by_jid(LServer, UserJid, SinceId, PageSize) ->
         ejabberd_odbc:escape(UserJid), "' and groupinfo.groupid = groupuser.groupid",
         case SinceId of
             <<>> -> <<>>;
-            _ -> <<" and groupuser.groupid > ", SinceId/binary, " order by groupuser.groupid desc">>
-        end,
+            _ -> <<" and groupuser.groupid < ", SinceId/binary>>
+        end, <<" order by groupuser.groupid desc">>,
         case PageSize of
             <<>> -> <<";">>;
             _ -> <<" limit 0,", PageSize/binary, ";">>
