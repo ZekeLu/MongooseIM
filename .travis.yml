@@ -31,7 +31,7 @@ branches:
                 - new-master
 
 otp_release:
-        - 17.5
+        - 18.0
 
 env:
         global:
