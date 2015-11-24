@@ -50,8 +50,8 @@ get_members_by_groupid(LServer, GroupId, SinceId, PageSize) ->
     " where groupid = '">>, ejabberd_odbc:escape(GroupId), "'",
         case SinceId of
             <<>> -> <<>>;
-            _ -> <<"and id > ", SinceId/binary, " order by id desc">>
-        end,
+            _ -> <<"and id < ", SinceId/binary>>
+        end, <<" order by id desc">>,
         case PageSize of
             <<>> -> <<";">>;
             _ -> <<" limit 0,", PageSize/binary, ";">>
