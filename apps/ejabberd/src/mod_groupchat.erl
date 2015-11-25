@@ -15,6 +15,7 @@
 -include("organization.hrl").
 
 -define(NS_GROUPCHAT, <<"aft:groupchat">>).
+-define(PAGESIZE, <<"50">>).
 
 start(Host, _Opts) ->
     gen_iq_handler:add_iq_handler(ejabberd_sm, Host,
@@ -79,9 +80,13 @@ get_members(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = Su
     UserJid = jlib:jid_to_binary({LUser, LServer, <<>>}),
     GroupId = xml:get_tag_attr_s(<<"groupid">>, SubEl),
     SinceId = xml:get_tag_attr_s(<<"sinceid">>, SubEl),
+    PageSize = case xml:get_tag_attr_s(<<"count">>, SubEl) of
+                   <<>> -> ?PAGESIZE;
+                   P -> P
+               end,
     case odbc_groupchat:is_user_in_group(LServer, UserJid, GroupId) of
         true ->
-            case odbc_groupchat:get_members_by_groupid(LServer, GroupId, SinceId) of
+            case odbc_groupchat:get_members_by_groupid(LServer, GroupId, SinceId, PageSize) of
                 {ok, MembersInfoList} ->
                     IQ#iq{type = result, sub_el = [SubEl#xmlel{children =
                     [{xmlcdata, members_to_json(MembersInfoList)}]}]};
@@ -97,7 +102,11 @@ get_members(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = Su
 get_groups(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = SubEl} = IQ) ->
     UserJid = jlib:jid_to_binary({LUser, LServer, <<>>}),
     SinceId = xml:get_tag_attr_s(<<"sinceid">>, SubEl),
-    case odbc_groupchat:get_groups_by_jid(LServer, UserJid, SinceId) of
+    PageSize = case xml:get_tag_attr_s(<<"count">>, SubEl) of
+                   <<>> -> ?PAGESIZE;
+                   P -> P
+               end,
+    case odbc_groupchat:get_groups_by_jid(LServer, UserJid, SinceId, PageSize) of
         {ok, Rs} when is_list(Rs) ->
             IQ#iq{type = result, sub_el = [SubEl#xmlel{children = [{xmlcdata, grouplist_to_json(Rs)}]}]};
         {error, _} ->
@@ -436,14 +445,14 @@ push_groupmember(GroupId, GroupName, GroupOwner, Server, ToList, MembersInfoList
     Contents = groupmember_json(MembersInfoList, Action),
     PreAttrs = [{<<"xmlns">>, ?NS_GROUPCHAT}, {<<"type">>, <<"groupmember">>},
         {<<"groupid">>, GroupId}, {<<"groupname">>, GroupName}],
-        TAttrs = case GroupOwner of
-                     <<>> -> PreAttrs;
-                     _ -> [{<<"master">>, GroupOwner} | PreAttrs]
-                 end,
-        Attrs = case Operator of
-                    <<>> -> TAttrs;
-                    _ -> [{<<"operator">>, Operator} | TAttrs]
-                end,
+    TAttrs = case GroupOwner of
+                 <<>> -> PreAttrs;
+                 _ -> [{<<"master">>, GroupOwner} | PreAttrs]
+             end,
+    Attrs = case Operator of
+                <<>> -> TAttrs;
+                _ -> [{<<"operator">>, Operator} | TAttrs]
+            end,
     push(GroupId, Server, Attrs, Contents, ToList).
 
 push_groupinfo(Group, Server, ToList, Action, Operator) ->
