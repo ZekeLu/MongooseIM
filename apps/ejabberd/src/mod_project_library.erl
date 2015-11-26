@@ -1050,7 +1050,7 @@ get_log_ex(LServer, BareJID, Before, After, Count, Project) ->
 get_trash_ex(LServer, BareJID, Before, After, Count, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
         true ->
-            SelectPart = ["select file.id, file.name, file.location, file.deleted_at from file, folder ",
+            SelectPart = ["select file.id, file.name, file.location, file.deleted_at, folder.owner from file, folder ",
                 "where file.status='0' and file.folder=folder.id and ( folder.owner='", ejabberd_odbc:escape(BareJID), "' "],
             AdminOrNot = case ejabberd_odbc:sql_query(LServer, ["select admin from project where id='", Project, "';"]) of
                              {selected, _, [{BareJID}]} -> " or folder.owner='admin') ";
@@ -1494,13 +1494,13 @@ build_folder_result(List) ->
 
 build_trash_file_result(List) ->
     Result =
-        lists:foldl(fun({E1, E2, E3, E4}, AccIn) ->
+        lists:foldl(fun({E1, E2, E3, E4, E5}, AccIn) ->
             AccIn1 = case AccIn of
                          <<>> -> <<>>;
                          _ -> <<AccIn/binary, ",">>
                      end,
-            <<AccIn1/binary, "{\"id\":\"", E1/binary, "\", \"name\":\"", E2/binary,
-            "\", \"location\":\"", E3/binary,  "\", \"delete_time\":\"", E4/binary, "\"}">>
+            <<AccIn1/binary, "{\"id\":\"", E1/binary, "\", \"name\":\"", E2/binary, "\", \"location\":\"", E3/binary,
+            "\", \"delete_time\":\"", E4/binary, "\", \"owner\":\"", E5/binary, "\"}">>
         end,
             <<>>,
             List),
