@@ -1450,7 +1450,8 @@ folder_sql_query(LServer, Type, BareJID, Folder, Project, IsOwner) ->
                 true ->
                     Q1 = [query_folder_column(normal), "and parent='", Folder, "' and type='", ?TYPE_PER_PUBLIC, "';"],
                     Q2 = ["select id, type, name, creator, owner, created_at from folder, share_users where folder.status='1' and
-                    folder.type='", ?TYPE_PER_SHARE, "' and share_users.userjid='", escape(BareJID), "' and folder.id=share_users.folder;"],
+                    folder.type='", ?TYPE_PER_SHARE, "' and share_users.userjid='", escape(BareJID),
+                        "' and folder.id=share_users.folder and folder.project='", Project, "';"],
                     [{file, query_file_by_parent(Folder)}, {folder, Q1}, {folder, Q2}]
             end;
         ?TYPE_PER_PUBLIC ->
@@ -1459,7 +1460,7 @@ folder_sql_query(LServer, Type, BareJID, Folder, Project, IsOwner) ->
             if
                 IsOwner =:= true -> [{file, query_file_by_parent(Folder)}];
                 true ->
-                    case ejabberd_odbc:sql_query(LServer, ["select id from share_users where folder='", Folder,
+                    case ejabberd_odbc:sql_query(LServer, ["select folder from share_users where folder='", Folder,
                         "' and userjid='", escape(BareJID), "';"]) of
                         {selected, _, [{_ID}]} -> [{file, query_file_by_parent(Folder)}];
                         _ -> {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
