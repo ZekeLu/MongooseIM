@@ -502,16 +502,23 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                 not_exist ->
                     case Parent of
                         <<>> -> %% %% mean create folder in self, privilige is ok.
-                            %% TOFIX:check user folder is exist or not???
                             F = fun() ->
-                                {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('",
-                                    ?TYPE_PERSON, "', '', '", SBareJID, "', '", SBareJID, "', '-1', '", Project, "');"]),
-                                {selected, _, [{ID1, _Type, _Name, _Create, _Owner, _Create_at}]} =
-                                    {selected, _, ParentFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
-                                {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('",
-                                    ?TYPE_PER_PUBLIC, "', '", escape(Name), "', '", SBareJID, "', '", SBareJID, "', '", ID1, "', '", Project, "');"]),
-                                {selected, _, InsertFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
-                                {ok, ID1, ParentFolder, InsertFolder}
+                                case ejabberd_odbc:sql_query_t(["select count(id) from folder where project='", Project, "' and type='", ?TYPE_PERSON
+                                    ,"' and owner='", SBareJID, "';"]) of
+                                    {selected,_,[{<<"0">>}]} ->
+                                        {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('",
+                                            ?TYPE_PERSON, "', '', '", SBareJID, "', '", SBareJID, "', '-1', '", Project, "');"]),
+                                        {selected, _, [{ID1, _Type, _Name, _Create, _Owner, _Create_at}]} =
+                                            {selected, _, ParentFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
+                                        {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('",
+                                            ?TYPE_PER_PUBLIC, "', '", escape(Name), "', '", SBareJID, "', '", SBareJID, "', '", ID1, "', '", Project, "');"]),
+                                        {selected, _, InsertFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
+                                        {ok, ID1, ParentFolder, InsertFolder};
+                                    {selected,_,[{_C}]} ->
+                                        {error, exist};
+                                    _ ->
+                                        error
+                                end
                             end,
                             case ejabberd_odbc:sql_transaction(LServer, F) of
                                 {atomic, {ok, ParentID, ParentFolder, InsertFolder}} ->
@@ -519,6 +526,8 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                                     FolderJson = build_folder_result(InsertFolder),
                                     {ok, <<"[{\"parent\":\"-1\", \"folder\":", ParentFolderJson/binary,
                                         "}, {\"parent\":\"", ParentID/binary, "\", \"folder\":", FolderJson/binary, "}]">>};
+                                {atomic, {error, exist}} ->
+                                    {error, ?ERR_BAD_REQUEST};
                                 _ ->
                                     {error, ?AFT_ERR_DATABASE}
                             end;
@@ -570,14 +579,22 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                             case Parent of
                                 <<>> -> %% %% mean create folder in self, privilige is ok.
                                     F = fun() ->
-                                        {updated, 1} = ejabberd_odbc:sql_query_t( ["insert into folder(type, name, creator, owner, parent, project) values('",
-                                            ?TYPE_PERSON, "', '', '", SBareJID, "', '", SBareJID, "', '-1', '", Project, "');"]),
-                                        {selected, _, [{ID1, _Type, _Name, _Create, _Owner, _Create_at}]} =
-                                            {selected, _, ParentFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
-                                        {updated, 1} = ejabberd_odbc:sql_query_t(["insert into file(uuid, name, size_byte, creator, version_count, folder) values('", ejabberd_odbc:escape(UUID), "', '",
-                                            ejabberd_odbc:escape(Name), "', '", Size, "', '", ejabberd_odbc:escape(BareJID), "', '1', '", ID1, "');"]),
-                                        {selected, _, InsertFile} = ejabberd_odbc:sql_query_t([query_file_column(normal), "and id=last_insert_id();"]),
-                                        {ok, ID1, ParentFolder, InsertFile}
+                                        case ejabberd_odbc:sql_query_t(["select count(id) from folder where project='", Project, "' and type='", ?TYPE_PERSON
+                                            ,"' and owner='", SBareJID, "';"]) of
+                                            {selected,_,[{<<"0">>}]} ->
+                                                {updated, 1} = ejabberd_odbc:sql_query_t( ["insert into folder(type, name, creator, owner, parent, project) values('",
+                                                    ?TYPE_PERSON, "', '', '", SBareJID, "', '", SBareJID, "', '-1', '", Project, "');"]),
+                                                {selected, _, [{ID1, _Type, _Name, _Create, _Owner, _Create_at}]} =
+                                                    {selected, _, ParentFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
+                                                {updated, 1} = ejabberd_odbc:sql_query_t(["insert into file(uuid, name, size_byte, creator, version_count, folder) values('", ejabberd_odbc:escape(UUID), "', '",
+                                                    ejabberd_odbc:escape(Name), "', '", Size, "', '", ejabberd_odbc:escape(BareJID), "', '1', '", ID1, "');"]),
+                                                {selected, _, InsertFile} = ejabberd_odbc:sql_query_t([query_file_column(normal), "and id=last_insert_id();"]),
+                                                {ok, ID1, ParentFolder, InsertFile};
+                                            {selected,_,[{_C}]} ->
+                                                {error, exist};
+                                            _ ->
+                                                error
+                                        end
                                     end,
                                     case ejabberd_odbc:sql_transaction(LServer, F) of
                                         {atomic, {ok, ParentID, ParentFolder, InsertFile}} ->
@@ -585,6 +602,8 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                             FileJson = build_file_result(InsertFile),
                                             {ok, <<"[{\"parent\":\"-1\", \"folder\":", ParentFolderJson/binary,
                                                 "}, {\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}]">>};
+                                        {atomic, {error, exist}} ->
+                                            {error, ?ERR_BAD_REQUEST};
                                         _ ->
                                             {error, ?AFT_ERR_DATABASE}
                                     end;
@@ -1051,7 +1070,7 @@ get_trash_ex(LServer, BareJID, Before, After, Count, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
         true ->
             SelectPart = ["select file.id, file.name, file.location, file.deleted_at, folder.owner from file, folder ",
-                "where file.status='0' and file.folder=folder.id and ( folder.owner='", ejabberd_odbc:escape(BareJID), "' "],
+                "where file.status='0' and folder.project='", Project ,"'  and file.folder=folder.id and ( folder.owner='", escape(BareJID), "' "],
             AdminOrNot = case ejabberd_odbc:sql_query(LServer, ["select admin from project where id='", Project, "';"]) of
                              {selected, _, [{BareJID}]} -> " or folder.owner='admin') ";
                              _ -> " ) "
@@ -1074,11 +1093,11 @@ get_trash_ex(LServer, BareJID, Before, After, Count, Project) ->
 clear_trash_ex(LServer, BareJID, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
         true ->
-            DeleteVersionFile= ["delete file_version.* from file_version, file, folder",
+            DeleteVersionFile= ["delete file_version.* from file_version, file, folder ",
                 "where folder.project='", Project, "' and file.status='0' and file.folder=folder.id and file_version.file=file.id and ( folder.owner='", escape(BareJID), "' "],
             DeleteFile = ["delete file.* from file, folder ",
-                "where folder=project='", Project, "' file.status='0' and file.folder=folder.id and ( folder.owner='", escape(BareJID), "' "],
-            DeleteFolder = ["delete from folder where folder='", Project, "' folder.status='0' and ( folder.owner='", ejabberd_odbc:escape(BareJID), "' "],
+                "where folder.project='", Project, "' and file.status='0' and file.folder=folder.id and ( folder.owner='", escape(BareJID), "' "],
+            DeleteFolder = ["delete from folder where project='", Project, "' and status='0' and ( owner='", escape(BareJID), "' "],
             AdminOrNot = case ejabberd_odbc:sql_query(LServer, ["select admin from project where id='", Project, "';"]) of
                              {selected, _, [{BareJID}]} -> " or folder.owner='admin');";
                              _ -> " );"

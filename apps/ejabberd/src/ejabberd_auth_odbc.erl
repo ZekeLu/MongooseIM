@@ -104,9 +104,9 @@ check_password(LUser, LServer, Password, Digest, DigestGen) ->
     Username = ejabberd_odbc:escape(LUser),
     try odbc_queries:get_password(LServer, Username) of
         %% Account exists, check if password is valid
-        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{Passwd, null}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_, Passwd, null}]} ->
             ejabberd_auth:check_digest(Digest, DigestGen, Password, Passwd);
-        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_Passwd, PassDetails}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_, _Passwd, PassDetails}]} ->
             case scram:deserialize(PassDetails) of
                 {ok, #scram{} = Scram} ->
                     scram:check_digest(Scram, Digest, DigestGen, Password);
@@ -127,11 +127,11 @@ check_password(LUser, LServer, Password, Digest, DigestGen) ->
                                Password::binary()) -> boolean() | not_exists.
 check_password_wo_escape(LUser, LServer, Password) ->
     try odbc_queries:get_password(LServer, LUser) of
-        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{Password, null}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_, Password, null}]} ->
             Password /= <<"">>; %% Password is correct, and not empty
-        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_Password2, null}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_, _Password2, null}]} ->
             false;
-        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_Password2, PassDetails}]} ->
+        {selected, [<<"username">>, <<"password">>, <<"pass_details">>], [{_, _Password2, PassDetails}]} ->
             case scram:deserialize(PassDetails) of
                 {ok, Scram} ->
                     scram:check_password(Password, Scram);

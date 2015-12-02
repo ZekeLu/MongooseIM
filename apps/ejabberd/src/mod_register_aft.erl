@@ -233,19 +233,26 @@ process_unauthenticated_iq(Server,
         {error, bad_request} ->
             IQ#iq{type = error, sub_el = [SubEl, ?ERR_BAD_REQUEST]};
         {ok, <<"get_code">>} ->
-            case get_code(get_tag_cdata(PhoneTag), 600, 60, <<"code_">>) of
-                {ok, Code} ->
-                    Phone = get_tag_cdata(PhoneTag),
-                    IQ#iq{type = result,
-                          sub_el = [#xmlel{name = <<"query">>,
-                                           attrs = [{<<"xmlns">>, <<"aft:register">>},
-                                                    {<<"subtype">>, <<"get_code">>}],
-                                           children = [#xmlel{name = <<"phone">>,
-                                                              children = [#xmlcdata{content = Phone}]},
-                                                       #xmlel{name = <<"code">>,
-                                                              children = [#xmlcdata{content = Code}]}]}]};
-                {error, Error} ->
-                    IQ#iq{type = error, sub_el = [SubEl, Error]}
+            Phone = get_tag_cdata(PhoneTag),
+            case ejabberd_auth_odbc:user_info(Server, Phone) of
+                {info, _} ->
+                    {error, ?AFT_ERR_PHONE_EXIST};
+                not_exist ->
+                    case get_code(Phone, 600, 60, <<"code_">>) of
+                        {ok, Code} ->
+                            IQ#iq{type = result,
+                                sub_el = [#xmlel{name = <<"query">>,
+                                    attrs = [{<<"xmlns">>, <<"aft:register">>},
+                                        {<<"subtype">>, <<"get_code">>}],
+                                    children = [#xmlel{name = <<"phone">>,
+                                        children = [#xmlcdata{content = Phone}]},
+                                        #xmlel{name = <<"code">>,
+                                            children = [#xmlcdata{content = Code}]}]}]};
+                        {error, Error} ->
+                            IQ#iq{type = error, sub_el = [SubEl, Error]}
+                    end;
+                _ ->
+                    {error, ?AFT_ERR_DATABASE}
             end;
         {ok, <<"register">>} ->
             case try_register(get_tag_cdata(PhoneTag),
