@@ -32,6 +32,8 @@ process_iq(From, To, #iq{xmlns = ?NS_MMS, type = _Type, sub_el = SubEl} = IQ) ->
                     download(From, To, IQ);
                 <<"upload">> ->
                     upload(From, To, IQ);
+                <<"complete">> ->
+                    multi_complete(From, To, IQ);
                 _ ->
                     IQ#iq{type = error, sub_el = [SubEl, ?ERR_BAD_REQUEST]}
             end;
@@ -87,23 +89,77 @@ upload(#jid{lserver = LServer, luser = LUser} = _From, _To, #iq{sub_el = SubEl} 
                        end,
             F = generate_fileid(),
             T = generate_token(Jid, F, E, S, FileType),
-            case ejabberd_redis:cmd(["SET", <<"upload:", F/binary>>, <<FileType/binary, $:, Time/binary>>]) of
-                <<"OK">> ->
-                    make_reply(T, F, E, IQ);
+            Uid = generate_fileid(),
+            case xml:get_tag_attr_s(<<"multipart">>, SubEl) of
+                <<"1">> ->
+                    case mod_mms_s3:multi_init(#mms_file{uid = Uid, type = FileType}) of
+                        {ok, UploadId} ->
+                            case init_multiparts(LServer, F, Uid, UploadId, FileType) of
+                                ok ->
+                                    case ejabberd_redis:cmd(["SET", <<"upload:", F/binary>>,
+                                        <<"1:", FileType/binary, $:, Time/binary>>]) of
+                                        <<"OK">> ->
+                                            make_reply(T, F, E, UploadId, IQ);
+                                        _ ->
+                                            make_error_reply(IQ, <<"19005">>)
+                                    end;
+                                _ ->
+                                    make_error_reply(IQ, <<"19014">>)
+                            end;
+                        {error, _} ->
+                            make_error_reply(IQ, <<"19007">>)
+                    end;
                 _ ->
-                    make_error_reply(IQ, <<"19005">>)
+                    case ejabberd_redis:cmd(["SET", <<"upload:", F/binary>>,
+                        <<"0:", FileType/binary, $:, Time/binary>>]) of
+                        <<"OK">> ->
+                            make_reply(T, F, E, undefined, IQ);
+                        _ ->
+                            make_error_reply(IQ, <<"19005">>)
+                    end
             end;
         F ->
             case ejabberd_redis:cmd(["GET", <<"upload:", F/binary>>]) of
-                {ok, <<Type:1/binary, $:, _/binary>>} ->
+                undefined ->
+                    make_error_reply(IQ, <<"19006">>);
+                <<IsMultipart:1/binary, $:, Type:1/binary, $:, _/binary>> ->
                     T = generate_token(Jid, F, E, S, Type),
-                    ejabberd_redis:cmd(["SET", <<"upload:", F/binary>>, <<Type/binary, $:, Time/binary>>]),
-                    make_reply(T, F, E, IQ);
+                    ejabberd_redis:cmd(["SET", <<"upload:", F/binary>>,
+                        <<IsMultipart/binary, $:, Type/binary, $:, Time/binary>>]),
+                    make_reply(T, F, E, undefined, IQ);
                 _ ->
                     make_error_reply(IQ, <<"19006">>)
             end
     end.
 
+multi_complete(#jid{lserver = LServer, luser = LUser} = _From, _To, #iq{sub_el = SubEl} = IQ) ->
+    Jid = <<LUser/binary, $@, LServer/binary>>,
+    case {get_tag(SubEl, <<"file">>), get_tag(SubEl, <<"uploadid">>)} of
+        {undefined, _} ->
+            make_error_reply(IQ, <<"19008">>);
+        {_, undefined} ->
+            make_error_reply(IQ, <<"19009">>);
+        {FileId, UploadId} ->
+            case get_multipart_uid(LServer, FileId, UploadId) of
+                {error, _} ->
+                    make_error_reply(IQ, <<"19011">>);
+                {Uid, Type} ->
+                    case get_multiparts(LServer, UploadId) of
+                        {error, _} ->
+                            make_error_reply(IQ, <<"19012">>);
+                        {ok, ETags} ->
+                            case mod_mms_s3:multi_complete(#mms_file{uid = Uid, type = Type}, UploadId, ETags) of
+                                ok ->
+                                    File = #mms_file{id = FileId, uid = Uid, type = Type, owner = Jid, filename = <<>>},
+                                    complete_multiparts(LServer, UploadId, File),
+                                    ejabberd_redis:cmd(["DEL", <<"upload:", FileId/binary>>]),
+                                    IQ#iq{type = result};
+                                {error, _} ->
+                                    make_error_reply(IQ, <<"19013">>)
+                            end
+                    end
+            end
+    end.
 
 %% ===============================
 %% helper
@@ -114,7 +170,7 @@ make_error_reply(#iq{sub_el = SubEl} = IQ, Code) ->
     Error = #xmlel{name = <<"error">>, attrs = [{<<"code">>, Code}]},
     IQ#iq{type = error, sub_el = [SubEl, Error]}.
 
-make_reply(T, F, E, #iq{sub_el = SubEl} = IQ) ->
+make_reply(T, F, E, U, #iq{sub_el = SubEl} = IQ) ->
     Token = #xmlel{
         name = <<"token">>,
         children = [{xmlcdata, T}]},
@@ -124,7 +180,16 @@ make_reply(T, F, E, #iq{sub_el = SubEl} = IQ) ->
     Expiration = #xmlel{
         name = <<"expiration">>,
         children = [{xmlcdata, E}]},
-    NEl = SubEl#xmlel{children = [Token, File, Expiration]},
+    El = [Token, File, Expiration],
+    El2 = case U of
+              undefined -> El;
+              _ ->
+                  UploadId = #xmlel{
+                      name = <<"uploadid">>,
+                      children = [{xmlcdata, U}]},
+                  [UploadId | El]
+          end,
+    NEl = SubEl#xmlel{children = El2},
     IQ#iq{type = result, sub_el = [NEl]}.
 
 get_fileid(SubEl) ->
@@ -137,6 +202,19 @@ get_fileid(SubEl) ->
                     undefined;
                 FileUid ->
                     FileUid
+            end
+    end.
+
+get_tag(SubEl, Tag) ->
+    case xml:get_subtag(SubEl, Tag) of
+        false ->
+            undefined;
+        El ->
+            case xml:get_tag_cdata(El) of
+                <<>> ->
+                    undefined;
+                Data ->
+                    Data
             end
     end.
 
@@ -177,6 +255,61 @@ get_file(LServer, Id) ->
         {selected, _, [{Uid, FileName, Owner, Type, CreatedAt}]} ->
             #mms_file{id = Id, uid = Uid, filename = FileName, owner = Owner,
                 type = Type, created_at = CreatedAt};
+        Reason ->
+            {error, Reason}
+    end.
+
+init_multiparts(LServer, FileId, Uid, UploadId, Type) ->
+    Query = [<<"insert into mms_multipart(upload_id,fileid,uid,type) values('">>,
+        UploadId, "','", FileId, "','", Uid, "','", Type, "');"],
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        {updated, 1} ->
+            ok;
+        Reason ->
+            {error, Reason}
+    end.
+
+-spec get_multipart_uid(binary(), binary(), binary()) -> {binary(), binary()} | {error, _}.
+get_multipart_uid(LServer, FileId, UploadId) ->
+    Query = [<<"select uid,type from mms_multipart where upload_id = '">>,
+        UploadId, <<"' and fileid = '">>, FileId, <<"';">>],
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        {selected, _, []} ->
+            {error, not_exists};
+        {selected, _, [{Uid, Type}]} ->
+            {Uid, Type};
+        Reason ->
+            {error, Reason}
+    end.
+
+-spec get_multiparts(binary(), binary()) -> {ok, list()} | {error, _}.
+get_multiparts(LServer, UploadId) ->
+    Query = [<<"select part_number,etag from mms_multipart_records where upload_id = '">>, UploadId, <<"';">>],
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        {selected, _, []} ->
+            {error, not_exists};
+        {selected, _, R} ->
+            {ok, R};
+        Reason ->
+            {error, Reason}
+    end.
+
+-spec complete_multiparts(binary(), binary(), #mms_file{}) -> ok | {error, _}.
+complete_multiparts(LServer, UploadId, File) ->
+    F = fun() ->
+        Query1 = [<<"delete from mms_multipart where upload_id = '">>,
+            UploadId, <<"';">>],
+        Query2 = [<<"delete from mms_multipart_records where upload_id = '">>, UploadId, <<"';">>],
+        ejabberd_odbc:sql_query_t(Query1),
+        ejabberd_odbc:sql_query_t(Query2),
+        Query = [<<"insert into mms_file(id,uid,filename,owner,type,created_at) values('">>,
+            File#mms_file.id, "','", File#mms_file.uid, "','", File#mms_file.filename, "', '",
+            File#mms_file.owner, "',", File#mms_file.type, <<", now());">>],
+        ejabberd_odbc:sql_query_t(Query)
+    end,
+    case ejabberd_odbc:sql_transaction(LServer, F) of
+        {atomic, {updated, 1}} ->
+            ok;
         Reason ->
             {error, Reason}
     end.
