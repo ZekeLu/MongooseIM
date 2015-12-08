@@ -85,8 +85,8 @@
 	     add_privacy_list/2,
 	     set_privacy_list/2,
 	     del_privacy_lists/3,
-	     set_vcard/29,
-         set_vcard_with_no_transaction/29,
+	     set_vcard/28,
+         set_vcard_with_no_transaction/28,
 	     get_vcard/2,
          search_vcard/3,
 	     escape_string/1,
@@ -579,10 +579,10 @@ del_user_private_storage(LServer, Username) ->
 set_vcard_with_no_transaction(LServer, LUsername, SBDay, SCTRY, SEMail, STel, SFN, SFamily, SGiven,
     SLBDay, SLCTRY, SLEMail, SLTel, SLFN, SLFamily, SLGiven, SLLocality,
     SLMiddle, SLNickname, SLOrgName, SLOrgUnit, SLocality, SMiddle,
-    SNickname, SOrgName, SOrgUnit, SVCARD, SVCardTag, Username) ->
+    SNickname, SOrgName, SOrgUnit, SVCARD, Username) ->
     update_t(<<"vcard">>,
-        [<<"username">>, <<"server">>, <<"vcard">>, <<"tag">>],
-        [LUsername, LServer, SVCARD, SVCardTag],
+        [<<"username">>, <<"server">>, <<"vcard">>],
+        [LUsername, LServer, SVCARD],
         [<<"username='">>, LUsername, <<"' and server='">>, LServer, "'"]),
     update_set_t(<<"vcard_search">>,
         [<<"username">>, Username,
@@ -618,22 +618,14 @@ set_vcard_with_no_transaction(LServer, LUsername, SBDay, SCTRY, SEMail, STel, SF
 set_vcard(LServer, LUsername, SBDay, SCTRY, SEMail, STel, SFN, SFamily, SGiven,
     SLBDay, SLCTRY, SLEMail, SLTel, SLFN, SLFamily, SLGiven, SLLocality,
     SLMiddle, SLNickname, SLOrgName, SLOrgUnit, SLocality, SMiddle,
-    SNickname, SOrgName, SOrgUnit, SVCARD, SVCardTag, Username) ->
+    SNickname, SOrgName, SOrgUnit, SVCARD, Username) ->
     ejabberd_odbc:sql_transaction(
         LServer,
         fun() ->
-            case SVCardTag of
-                <<>> ->
-                    update_t(<<"vcard">>,
-                        [<<"username">>, <<"server">>, <<"vcard">>],
-                        [LUsername, LServer, SVCARD],
-                        [<<"username='">>, LUsername, <<"' and server='">>, LServer, "'"]);
-                _ ->
-                    update_t(<<"vcard">>,
-                        [<<"username">>, <<"server">>, <<"vcard">>, <<"tag">>],
-                        [LUsername, LServer, SVCARD, SVCardTag],
-                        [<<"username='">>, LUsername, <<"' and server='">>, LServer, "'"])
-            end,
+            update_t(<<"vcard">>,
+                [<<"username">>, <<"server">>, <<"vcard">>],
+                [LUsername, LServer, SVCARD],
+                [<<"username='">>, LUsername, <<"' and server='">>, LServer, "'"]),
             update_set_t(<<"vcard_search">>,
                 [<<"username">>, Username,
                     <<"lusername">>, LUsername,

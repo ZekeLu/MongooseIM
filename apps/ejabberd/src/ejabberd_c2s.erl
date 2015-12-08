@@ -1807,18 +1807,6 @@ presence_update(From, Packet, StateData) ->
                                     end,
                     presence_broadcast_first(From, NewStateData1, Packet);
                 true ->
-                    %% save md5 of vcard.
-                    #jid{lserver = LServer }= From,
-                    case xml:get_subtag(Packet, <<"x">>) of
-                        false -> nothing_to_do;
-                        XEle ->
-                            case xml:get_subtag(XEle, <<"photo">>) of
-                                false -> nothing_to_do;
-                                PhotoEle ->
-                                    VCardTag = xml:get_tag_cdata(PhotoEle),
-                                    mod_vcard_odbc:update_vcard_tag(LServer, StateData#state.user, VCardTag)
-                            end
-                    end,
                     presence_broadcast_to_trusted(NewStateData,
                                                   From,
                                                   NewStateData#state.pres_f,

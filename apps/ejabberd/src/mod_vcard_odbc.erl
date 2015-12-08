@@ -29,10 +29,10 @@
 -behaviour(mod_vcard).
 
 %% mod_vcards callbacks
--export([init/2,remove_user/2, get_vcard/2, set_vcard/5, search/4, search_fields/1]).
+-export([init/2,remove_user/2, get_vcard/2, set_vcard/4, search/4, search_fields/1]).
 
 %% API
--export( [search/3, set_vcard_with_no_transaction/5, update_vcard_tag/3] ).
+-export( [search/3, set_vcard_with_no_transaction/4] ).
 
 -include("ejabberd.hrl").
 -include("jlib.hrl").
@@ -68,13 +68,12 @@ get_vcard(LUser, LServer) ->
             {error, ?ERR_SERVICE_UNAVAILABLE}
     end.
 
-set_vcard(User, VHost, VCard, VCardTag, VCardSearch) ->
+set_vcard(User, VHost, VCard, VCardSearch) ->
     LUser = jlib:nodeprep(User),
     Username = ejabberd_odbc:escape(User),
     LUsername = ejabberd_odbc:escape(LUser),
     LServer = ejabberd_odbc:escape(VHost),
     SVCARD = ejabberd_odbc:escape( exml:to_binary(VCard)),
-    SVCardTag = ejabberd_odbc:escape(VCardTag),
 
     SFN = ejabberd_odbc:escape(VCardSearch#vcard_search.fn),
     SLFN = ejabberd_odbc:escape(VCardSearch#vcard_search.lfn),
@@ -107,18 +106,17 @@ set_vcard(User, VHost, VCard, VCardTag, VCardSearch) ->
                            SLLocality, SLMiddle, SLNickname,
                            SLOrgName, SLOrgUnit, SLocality,
                            SMiddle, SNickname, SOrgName,
-                           SOrgUnit, SVCARD, SVCardTag, Username),
+                           SOrgUnit, SVCARD, Username),
 
     ejabberd_hooks:run(vcard_set, VHost, [LUser, VHost, VCard]),
     ok.
 
-set_vcard_with_no_transaction(User, VHost, VCard, VCardTag, VCardSearch) ->
+set_vcard_with_no_transaction(User, VHost, VCard, VCardSearch) ->
     LUser = jlib:nodeprep(User),
     Username = ejabberd_odbc:escape(User),
     LUsername = ejabberd_odbc:escape(LUser),
     LServer = ejabberd_odbc:escape(VHost),
     SVCARD = ejabberd_odbc:escape(exml:to_binary(VCard)),
-    SVCardTag = ejabberd_odbc:escape(VCardTag),
 
     SFN = ejabberd_odbc:escape(VCardSearch#vcard_search.fn),
     SLFN = ejabberd_odbc:escape(VCardSearch#vcard_search.lfn),
@@ -151,7 +149,7 @@ set_vcard_with_no_transaction(User, VHost, VCard, VCardTag, VCardSearch) ->
         SLLocality, SLMiddle, SLNickname,
         SLOrgName, SLOrgUnit, SLocality,
         SMiddle, SNickname, SOrgName,
-        SOrgUnit, SVCARD, SVCardTag, Username).
+        SOrgUnit, SVCARD, Username).
 
 get_vcard_ex(UserName, Server) ->
     case get_vcard(UserName, Server) of
@@ -238,16 +236,6 @@ do_search(LServer, RestrictionSQL) ->
 
 search_fields(_VHost) ->
     mod_vcard:default_search_fields().
-
-update_vcard_tag(LServer, User, VCardTag) ->
-    SVCardTag = ejabberd_odbc:escape(VCardTag),
-    Query = ["update vcard set tag='", SVCardTag, "' where username='", User, "';"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {updated, 1} ->
-            ok;
-        Error ->
-            Error
-    end.
 
 %%--------------------------------------------------------------------
 %% internal

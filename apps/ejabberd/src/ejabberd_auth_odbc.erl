@@ -398,19 +398,18 @@ try_register(Username, Server, _Password, Phone, Nick) ->
     LServer = jlib:nameprep(Server),
     %% modify 'TEL' element about standard vcard format as:
     %% 1.only one 'TEL' in vcard; 2.keep 'NUMBER' in 'TEL', also keep 'HOME' and 'CELL' in 'TEL', other element ignored.
-    %% vcard format: <VCARD> <TEL> <NUMBER>1388888888</NUMBER> </TEL> ...</VCARD>
+    %% vcard format: <VCARD><TEL><NUMBER>1388888888</NUMBER></TEL> ... </VCARD>
     VCardXml = {xmlel, <<"vCard">>,
         [{<<"xmlns">>, ?NS_VCARD}],
         [{xmlel, <<"NICKNAME">>, [], [{xmlcdata, Nickname}]},
          {xmlel, <<"TEL">>, [], [{xmlel, <<"HOME">>, [], []},
                                  {xmlel, <<"CELL">>, [], []},
                                  {xmlel, <<"NUMBER">>, [], [{xmlcdata, Phone}]}]}]},
-    VCardTag = list_to_binary(jlib:md5_hex(exml:to_binary(VCardXml))),
     F = fun() ->
         case catch odbc_queries:add_user(LServer, Username, Pass, Phone, <<>>) of
             {updated, 1} ->
                 {ok, VCardSearch} = mod_vcard:prepare_vcard_search_params(Username, LServer, VCardXml),
-                mod_vcard_odbc:set_vcard_with_no_transaction(Username, LServer, VCardXml, VCardTag, VCardSearch),
+                mod_vcard_odbc:set_vcard_with_no_transaction(Username, LServer, VCardXml, VCardSearch),
                 ok;
             _ ->
                 exists
@@ -479,11 +478,10 @@ update_phone(Username, Server, Phone) ->
                                 _ -> <<>>
                 end,
         NewVCard = update_vcard_number(VCard, Phone),
-        VcardTag = list_to_binary(jlib:md5_hex(exml:to_binary(NewVCard))),
         {ok, VCardSearch} = mod_vcard:prepare_vcard_search_params(Username, LServer, NewVCard),
         case ejabberd_odbc:sql_query_t(Query1) of
             {updated, 1} ->
-                mod_vcard_odbc:set_vcard_with_no_transaction(Username, LServer, NewVCard, VcardTag, VCardSearch),
+                mod_vcard_odbc:set_vcard_with_no_transaction(Username, LServer, NewVCard, VCardSearch),
                 true;
             _ ->
                 false
