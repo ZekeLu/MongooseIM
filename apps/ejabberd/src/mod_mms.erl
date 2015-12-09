@@ -284,7 +284,8 @@ get_multipart_uid(LServer, FileId, UploadId) ->
 
 -spec get_multiparts(binary(), binary()) -> {ok, list()} | {error, _}.
 get_multiparts(LServer, UploadId) ->
-    Query = [<<"select part_number,etag from mms_multipart_records where upload_id = '">>, UploadId, <<"';">>],
+    Query = [<<"select part_number,etag from mms_multipart_records where upload_id = '">>,
+        UploadId, <<"' order by part_number;">>],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, []} ->
             {error, not_exists};
