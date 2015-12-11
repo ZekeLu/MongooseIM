@@ -197,7 +197,7 @@ create_and_add(LServer, Group, MembersList) ->
 
 -spec complete_task(binary(), binary()) -> ok | {error, _}.
 complete_task(LServer, TaskId) ->
-    Query = [<<"select type from groupinfo where id = ">>, TaskId, ";"],
+    Query = [<<"select type from groupinfo where groupid = ">>, TaskId, ";"],
     F = fun() ->
         case ejabberd_odbc:sql_query_t(Query) of
             {selected, _, []} ->
@@ -206,7 +206,7 @@ complete_task(LServer, TaskId) ->
                 case lists:member(Type, [?TASK_GROUP, ?EVENT_GROUP]) of
                     true ->
                         case ejabberd_odbc:sql_query_t([<<"update groupinfo set status = ">>,
-                            ?STATUS_END, " where id = ", TaskId, ";"]) of
+                            ?STATUS_END, " where groupid = ", TaskId, ";"]) of
                             {updated, 1} ->
                                 ok;
                             {updated, 0} ->
