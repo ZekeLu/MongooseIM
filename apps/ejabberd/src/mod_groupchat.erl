@@ -314,13 +314,13 @@ remove_members(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el =
     MembersList = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     case odbc_groupchat:is_user_own_group(LServer, UserJid, GroupId) of
         true ->
-            do_remove_members(IQ, LServer, GroupId, MembersList);
+            do_remove_members(IQ, LServer, GroupId, MembersList, UserJid);
         _ ->
             case odbc_groupchat:is_user_in_group(LServer, UserJid, GroupId) of
                 true ->
                     case MembersList of
                         [UserJid] ->
-                            do_remove_members(IQ, LServer, GroupId, MembersList);
+                            do_remove_members(IQ, LServer, GroupId, MembersList, UserJid);
                         _ ->
                             make_error_reply(IQ, <<"15104">>)
                     end;
@@ -419,7 +419,7 @@ do_add_members(LServer, Operator, GroupId, ExistsMembers, NewMembers, IQ, SubEl)
             end
     end.
 
-do_remove_members(#iq{sub_el = SubEl} = IQ, LServer, GroupId, MembersList) ->
+do_remove_members(#iq{sub_el = SubEl} = IQ, LServer, GroupId, MembersList, Operator) ->
     case odbc_groupchat:remove_members(LServer, GroupId, MembersList) of
         {ok, MembersInfoList} ->
             case MembersInfoList of
@@ -430,10 +430,10 @@ do_remove_members(#iq{sub_el = SubEl} = IQ, LServer, GroupId, MembersList) ->
                         {ok, RemainMembers} ->
                             RemainJid = [GroupUser#groupuser.jid || GroupUser <- RemainMembers],
                             push_groupmember(GroupId, <<>>, <<>>, LServer, RemainJid ++ MembersList,
-                                MembersInfoList, <<"remove">>, <<>>);
+                                MembersInfoList, <<"remove">>, Operator);
                         _ ->
                             push_groupmember(GroupId, <<>>, <<>>, LServer, MembersList,
-                                MembersInfoList, <<"remove">>, <<>>)
+                                MembersInfoList, <<"remove">>, Operator)
                     end,
                     IQ#iq{type = result, sub_el = [SubEl]}
             end;
