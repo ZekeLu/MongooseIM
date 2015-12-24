@@ -1128,7 +1128,7 @@ recover_file_ex(LServer, BareJID, ID, Name, DestFolder, Project) ->
                                 DestFolder, DestType, DestOwner) of
                                 allowed ->
                                     F = fun() ->
-                                        case ejabberd_odbc:sql_query_t(["select count(id) from file where folder='", DestFolder, "' and name='", escape(Name), "';"]) of
+                                        case ejabberd_odbc:sql_query_t(["select count(id) from file where folder='", DestFolder, "' and name='", escape(Name), "' and status='1';"]) of
                                             {selected,_,[{<<"0">>}]} ->
                                                 {updated, 1} = ejabberd_odbc:sql_query_t(["update file set status='1', name='", escape(Name), "', folder='",
                                                     DestFolder, "' where id='", ID, "';"]),
