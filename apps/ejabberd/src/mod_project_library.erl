@@ -997,19 +997,19 @@ download_ex(LServer, BareJID, ID, UUID, Project) ->
     case odbc_organization:is_memeber(LServer, Project, BareJID) of
         true ->
             case query_self_parent_info('uuid-version_count#id-type-owner', LServer, ID, <<"file">>) of
-                {SelfUUID, Count, ParentID, ParentType, ParentOwner} ->
+                [{SelfUUID, Count, ParentID, ParentType, ParentOwner}] ->
                     Valid = if
-                                SelfUUID =:= UUID -> valid;
+                                SelfUUID =:= UUID -> true;
                                 (SelfUUID /= UUID) and (Count /= <<"1">>) ->
                                     case ejabberd_odbc:sql_query(LServer, ["select uuid from file_version where file='", ID, "'"]) of
                                         {selected, _, R} ->
                                             case lists:keyfind(UUID, 1, R) of
-                                                false -> invalid;
-                                                _ -> valid
+                                                false -> false;
+                                                _ -> true
                                             end;
-                                        _ -> invalid
+                                        _ -> false
                                     end;
-                                true -> invalid
+                                true -> false
                             end,
                     if
                         Valid =:= true ->
@@ -1021,7 +1021,11 @@ download_ex(LServer, BareJID, ID, UUID, Project) ->
                                                 ?PROJECT ->
                                                     case mod_mms:get_url(FileUUID, FileType) of
                                                         error -> {error, ?AFT_ERR_LOGIC_SERVER};
-                                                        URL -> {ok, URL}
+                                                        URL ->
+                                                            URL_Binary = iolist_to_binary(URL),
+							                                Result = <<"{\"id\":\"", ID/binary, "\", \"uuid\":\"", UUID/binary,
+                                                                        "\", \"url\":\"", URL_Binary/binary, "\"}">>,
+							                                {ok, Result}
                                                     end;
                                                 _ ->
                                                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
