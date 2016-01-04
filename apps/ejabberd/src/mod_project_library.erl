@@ -1510,7 +1510,7 @@ build_folder_result(List) ->
                          _ -> <<AccIn/binary, ",">>
                      end,
             <<AccIn1/binary, "{\"id\":\"", ID/binary, "\", \"type\":\"", Type/binary, "\", \"name\":\"", Name/binary,
-            "\", \"creator\":\"", Creator/binary, "\", \"owner\":\"", Owner/binary, "\", \"Time\":\"", Time/binary, "\"}">>
+            "\", \"creator\":\"", Creator/binary, "\", \"owner\":\"", Owner/binary, "\", \"time\":\"", Time/binary, "\"}">>
             end,
             <<>>,
             List),
@@ -1539,7 +1539,7 @@ build_file_result(List) ->
                          end,
                 <<AccIn1/binary, "{\"id\":\"", ID/binary, "\", \"uuid\":\"", UUID/binary, "\", \"name\":\"", Name/binary,
                 "\", \"size\":\"", Size/binary,  "\", \"creator\":\"", Creator/binary, "\", \"version_count\":\"",VersionCount/binary,
-                "\", \"folder\":\"", Folder/binary, "\", \"Time\":\"", Time/binary, "\"}">>
+                "\", \"folder\":\"", Folder/binary, "\", \"time\":\"", Time/binary, "\"}">>
             end,
             <<>>,
             List),
