@@ -190,26 +190,37 @@ process_iq(_From, _To, #iq{sub_el = SubEl} = IQ) ->
 
 check_do_what(SubType, PhoneTag, CodeTag, NickTag, PasswordTag, TokenTag) ->
     case {SubType, PhoneTag, CodeTag, NickTag, PasswordTag, TokenTag} of
-        {{value, <<"get_code">>}, Phone, false, false, false, false} ->
-            if Phone /= false ->
-                    {ok, <<"get_code">>};
+        {{value, <<"reg_get_code">>}, Phone, false, false, false, false} ->
+            if
+                Phone /= false ->
+                    {ok, <<"reg_get_code">>};
                true ->
                     {error, bad_request}
             end;
+        {{value, <<"find_get_code">>}, Phone, false, false, false, false} ->
+            if
+                Phone /= false ->
+                    {ok, <<"find_get_code">>};
+                true ->
+                    {error, bad_request}
+            end;
         {{value, <<"register">>}, Phone, Code, Nick, false, false} ->
-            if (Phone /= false) and (Code /= false) and (Nick /= false)  ->
+            if
+                (Phone /= false) and (Code /= false) and (Nick /= false)  ->
                     {ok, <<"register">>};
                true ->
                     {error, bad_request}
             end;
         {{value, <<"find">>}, Phone, Code, false, false, false} ->
-            if (Phone /= false) and (Code /= false)  ->
+            if
+                (Phone /= false) and (Code /= false)  ->
                     {ok, <<"find">>};
                true ->
                     {error, bad_request}
             end;
         {{value, <<"set_password">>}, false, false, false, Password, Token} ->
-            if (Password /= false) and (Token /= false) ->
+            if
+                (Password /= false) and (Token /= false) ->
                     {ok, <<"set_password">>};
                true ->
                     {error, bad_request}
@@ -232,18 +243,18 @@ process_unauthenticated_iq(Server,
     case check_do_what(SubType, PhoneTag, CodeTag, NickTag, PasswordTag, TokenTag) of
         {error, bad_request} ->
             IQ#iq{type = error, sub_el = [SubEl, ?ERR_BAD_REQUEST]};
-        {ok, <<"get_code">>} ->
+        {ok, <<"reg_get_code">>} ->
             Phone = get_tag_cdata(PhoneTag),
             case ejabberd_auth_odbc:user_info(Server, Phone) of
                 {info, _} ->
-                    {error, ?AFT_ERR_PHONE_EXIST};
+                    IQ#iq{type = error, sub_el = [SubEl, ?AFT_ERR_PHONE_EXIST]};
                 not_exist ->
                     case get_code(Phone, 600, 60, <<"code_">>) of
                         {ok, Code} ->
                             IQ#iq{type = result,
                                 sub_el = [#xmlel{name = <<"query">>,
                                     attrs = [{<<"xmlns">>, <<"aft:register">>},
-                                        {<<"subtype">>, <<"get_code">>}],
+                                        {<<"subtype">>, <<"reg_get_code">>}],
                                     children = [#xmlel{name = <<"phone">>,
                                         children = [#xmlcdata{content = Phone}]},
                                         #xmlel{name = <<"code">>,
@@ -252,7 +263,29 @@ process_unauthenticated_iq(Server,
                             IQ#iq{type = error, sub_el = [SubEl, Error]}
                     end;
                 _ ->
-                    {error, ?AFT_ERR_DATABASE}
+                    IQ#iq{type = error, sub_el = [SubEl, ?ERR_INTERNAL_SERVER_ERROR]}
+            end;
+        {ok, <<"find_get_code">>} ->
+            Phone = get_tag_cdata(PhoneTag),
+            case ejabberd_auth_odbc:user_info(Server, Phone) of
+                {info, _} ->
+                    case get_code(Phone, 600, 60, <<"code_">>) of
+                        {ok, Code} ->
+                            IQ#iq{type = result,
+                                sub_el = [#xmlel{name = <<"query">>,
+                                    attrs = [{<<"xmlns">>, <<"aft:register">>},
+                                        {<<"subtype">>, <<"find_get_code">>}],
+                                    children = [#xmlel{name = <<"phone">>,
+                                        children = [#xmlcdata{content = Phone}]},
+                                        #xmlel{name = <<"code">>,
+                                            children = [#xmlcdata{content = Code}]}]}]};
+                        {error, Error} ->
+                            IQ#iq{type = error, sub_el = [SubEl, Error]}
+                    end;
+                not_exist ->
+                    IQ#iq{type = error, sub_el = [SubEl, ?AFT_ERR_PHONE_NOT_EXIST]};
+                _ ->
+                    IQ#iq{type = error, sub_el = [SubEl, ?ERR_INTERNAL_SERVER_ERROR]}
             end;
         {ok, <<"register">>} ->
             case try_register(get_tag_cdata(PhoneTag),
@@ -342,12 +375,12 @@ try_register(Phone, Nick, Code, Server, _Lang, IpAddress) ->
                                                                         ["APPEND", [Token], [Phone, <<":">>, GUID]],
                                                                         ["EXPIRE", [Token], SurvivalTime]]),
                                                     JID = jlib:make_jid(GUID, Server, <<>>),
-                                                %send_registration_notifications(JID, IpAddress),
+                                                %   send_registration_notifications(JID, IpAddress),
                                                     send_welcome_message(JID),
                                                     {ok, {Phone, Token}};
                                                 _ ->
                                                     remove_timeout(IpAddress),
-                                                    {error, ?AFT_ERR_DATABASE}
+                                                    {error, ?ERR_INTERNAL_SERVER_ERROR}
                                             end;
                                         false ->
                                             {error, ?AFT_ERR_REGISTER_SO_QUICKLY}
@@ -373,7 +406,6 @@ find(Phone, Code, Server, _Lang, _IpAddress) ->
                             Temp = generate_token(),
                             Token = <<"setpwd_", Temp/binary >>,
                             SurvivalTime = 3600,
-                            %% [RegType, <<":">>, GUID, <<":">>, Password, <<":">>, Token]]),
                             ejabberd_redis:cmd([["DEL", [Token]],
                                                 ["APPEND", [Token], [Phone, <<":">>, UserName]],
                                                 ["EXPIRE", [Token], SurvivalTime]]),
