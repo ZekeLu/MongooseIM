@@ -324,6 +324,8 @@
     jlib:aft_stanza_error(<<"10002">>,<<"wait">>,<<"undefined-condition">>)).
 -define(AFT_ERR_PRIVILEGE_NOT_ENOUGH,
     jlib:aft_stanza_error(<<"10003">>,<<"auth">>,<<"undefined-condition">>)).
+-define(AFT_ERR_SMS_LIMIT_COUNT,
+    jlib:aft_stanza_error(<<"10004">>,<<"cancel">>,<<"undefined-condition">>)).
 
 %% account error: 11000 ~ 11999
 -define(AFT_ERR_GET_CODE_SO_QUICKLY,

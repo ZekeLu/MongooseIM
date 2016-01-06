@@ -594,8 +594,12 @@ verify_change_phone(User, Server, Phone, Code) ->
 %%     if
 %%         IntCode =:= 0 ->
 %%             ok;
-%%         (IntCode =:= 112300) or (IntCode =:= 112306) or (IntCode =:= 112319) ->
+%%         (IntCode =:= 112300) or (IntCode =:= 112306) or (IntCode =:= 112319) or (IntCode =:= 160042) ->
 %%             {error, ?AFT_ERR_BAD_PHONE_FORMAT};
+%%         (IntCode =:= 160015) or (IntCode =:= 160039) or (IntCode =:= 160040) or (IntCode =:= 160041) ->
+%%             {error, ?AFT_ERR_SMS_LIMIT_COUNT};
+%%         (IntCode =:= 112600) or (IntCode =:= 160014) ->
+%%             {error, ?ERRT_SERVICE_UNAVAILABLE};
 %%         true ->
 %%             ?ERROR_MSG("[ERROR]:SMS error, Reason=~p~n", [Code]),
 %%             ok
