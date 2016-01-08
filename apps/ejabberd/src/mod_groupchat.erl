@@ -145,11 +145,18 @@ create_group(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = S
         {?TASK_GROUP, <<>>} ->
             IQ#iq{type = error};
         {?TASK_GROUP, _} ->
-            case odbc_groupchat:is_in_project(LServer, [UserJid], Project) of
-                true ->
-                    do_create_group(LServer, IQ, Group);
+            case project_status(LServer, Project) of
+                running ->
+                    case odbc_groupchat:is_in_project(LServer, [UserJid], Project) of
+                        true ->
+                            do_create_group(LServer, IQ, Group);
+                        _ ->
+                            make_error_reply(IQ, <<"15103">>)
+                    end;
+                finished ->
+                    make_error_reply(IQ, <<"13010">>);
                 _ ->
-                    make_error_reply(IQ, <<"15103">>)
+                    make_error_reply(IQ, <<"13004">>)
             end;
         _ ->
             do_create_group(LServer, IQ, Group)
@@ -204,11 +211,18 @@ create_and_add(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el =
         {_, ?TASK_GROUP, <<>>} ->
             make_error_reply(IQ, <<"15105">>);
         {_, ?TASK_GROUP, _} ->
-            case odbc_groupchat:is_in_project(LServer, [UserJid | MembersList], Project) of
-                true ->
-                    do_create_add(LServer, IQ, Group, MembersList);
+            case project_status(LServer, Project) of
+                running ->
+                    case odbc_groupchat:is_in_project(LServer, [UserJid | MembersList], Project) of
+                        true ->
+                            do_create_add(LServer, IQ, Group, MembersList);
+                        _ ->
+                            make_error_reply(IQ, <<"15103">>)
+                    end;
+                finished ->
+                    make_error_reply(IQ, <<"13010">>);
                 _ ->
-                    make_error_reply(IQ, <<"15103">>)
+                    make_error_reply(IQ, <<"13004">>)
             end;
         _ ->
             do_create_add(LServer, IQ, Group, MembersList)
@@ -349,6 +363,8 @@ dismiss_group(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = 
                 _ ->
                     make_error_reply(IQ, <<"15102">>)
             end;
+        {error, project_finished} ->
+            make_error_reply(IQ, <<"13010">>);
         _ ->
             make_error_reply(IQ, <<"15104">>)
     end.
@@ -414,6 +430,8 @@ do_add_members(LServer, Operator, GroupId, ExistsMembers, NewMembers, IQ, SubEl)
                         {error, _} ->
                             make_error_reply(IQ, <<"15102">>)
                     end;
+                {error, project_finished} ->
+                    make_error_reply(IQ, <<"13010">>);
                 {error, _} ->
                     make_error_reply(IQ, <<"15104">>)
             end
@@ -437,6 +455,8 @@ do_remove_members(#iq{sub_el = SubEl} = IQ, LServer, GroupId, MembersList, Opera
                     end,
                     IQ#iq{type = result, sub_el = [SubEl]}
             end;
+        {error, project_finished} ->
+            make_error_reply(IQ, <<"13010">>);
         _ ->
             make_error_reply(IQ, <<"15102">>)
     end.
@@ -535,3 +555,12 @@ make_error_reply(#iq{sub_el = SubEl} = IQ, Code) ->
     },
     IQ#iq{type = error, sub_el = [SubEl, Err]}.
 
+project_status(LServer, ProID) ->
+    case odbc_organization:project_status(LServer, ProID) of
+        {ok, [{<<"1">>}]} ->
+            running;
+        {ok, [{<<"0">>}]} ->
+            finished;
+        _ ->
+            not_exist
+    end.

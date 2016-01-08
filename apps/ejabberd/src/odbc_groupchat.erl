@@ -114,7 +114,7 @@ create_group(LServer, Group) ->
                 case Group#group.project of
                     <<>> -> "NULL";
                     P -> P
-                end, ",'", Group#group.avatar, ";);"],
+                end, ",'", Group#group.avatar, "');"],
         ejabberd_odbc:sql_query_t(Query),
         {selected, _, [{GroupId}]} = ejabberd_odbc:sql_query_t([<<"select last_insert_id();">>]),
         T = make_add_query([Group#group.master], [], GroupId),
@@ -130,13 +130,17 @@ create_group(LServer, Group) ->
 
 add_members(LServer, GroupId, MembersList) ->
     F = fun() ->
-        Allow = case ejabberd_odbc:sql_query_t([<<"select type,project from groupinfo where groupid = ">>, GroupId, ";"]) of
+        Allow = case ejabberd_odbc:sql_query_t([<<"select type,project,status from groupinfo where groupid = ">>, GroupId, ";"]) of
                     {selected, _, []} ->
                         error;
-                    {selected, _, [{?TASK_GROUP, null}]} ->
+                    {selected, _, [{?TASK_GROUP, null, _}]} ->
                         error;
-                    {selected, _, [{?TASK_GROUP, Project}]} ->
+                    {selected, _, [{?TASK_GROUP, <<>>, _}]} ->
+                        error;
+                    {selected, _, [{?TASK_GROUP, Project, <<"1">>}]} ->
                         is_in_project(LServer, MembersList, Project);
+                    {selected, _, [{?TASK_GROUP, _Project, <<"2">>}]} ->
+                        finished;
                     _ ->
                         true
                 end,
@@ -152,6 +156,8 @@ add_members(LServer, GroupId, MembersList) ->
                 ejabberd_odbc:sql_query_t(SelectQuery);
             false ->
                 not_valid;
+            finished ->
+                finished;
             _ ->
                 error
         end
@@ -159,6 +165,8 @@ add_members(LServer, GroupId, MembersList) ->
     case ejabberd_odbc:sql_transaction(LServer, F) of
         {atomic, {selected, _, Rs}} ->
             {ok, [#groupuser{id = Id, jid = Jid, nickname = NickName} || {Id, Jid, NickName} <- Rs]};
+        {atomic, finished} ->
+            {error, project_finished};
         Error ->
             io:format("add members error:~p~n", [Error]),
             {error, Error}
@@ -264,14 +272,43 @@ set_nickname_in_group(LServer, GroupId, UserId, NickName) ->
 
 dismiss_group(LServer, GroupId, MembersInfoList) ->
     MembersString = join_memberslist([Jid || {Jid, _} <- MembersInfoList]),
-    Query = [[<<"delete from groupinfo where groupid = '">>, ejabberd_odbc:escape(GroupId), <<"';">>],
-        [<<"delete from groupuser where groupid ='">>, ejabberd_odbc:escape(GroupId),
-            <<"' and jid in ('">>, MembersString, <<"');">>]
-    ],
-    T = ejabberd_odbc:sql_transaction(LServer, Query),
+    F = fun() ->
+        Allow = case ejabberd_odbc:sql_query_t([<<"select type,project,status from groupinfo where groupid = ">>, GroupId, ";"]) of
+                    {selected, _, []} ->
+                        error;
+                    {selected, _, [{?TASK_GROUP, null, _}]} ->
+                        error;
+                    {selected, _, [{?TASK_GROUP, <<>>, _}]} ->
+                        error;
+                    {selected, _, [{?TASK_GROUP, _Project, <<"1">>}]} ->
+                        true;
+                    {selected, _, [{?TASK_GROUP, _Project, <<"2">>}]} ->
+                        finished;
+                    _ ->
+                        true
+                end,
+        case Allow of
+            true ->
+                Query1 = [<<"delete from groupinfo where groupid = '">>, ejabberd_odbc:escape(GroupId), <<"';">>],
+                Query2 = [<<"delete from groupuser where groupid ='">>, ejabberd_odbc:escape(GroupId),
+                        <<"' and jid in ('">>, MembersString, <<"');">>],
+                ejabberd_odbc:sql_query_t(Query1),
+                ejabberd_odbc:sql_query_t(Query2),
+                ok;
+            false ->
+                not_valid;
+            finished ->
+                finished;
+            _ ->
+                error
+        end
+    end,
+    T = ejabberd_odbc:sql_transaction(LServer, F),
     case T of
-        {atomic, _} ->
+        {atomic, ok} ->
             ok;
+        {atomic, finished} ->
+            {error, project_finished};
         Error ->
             {error, Error}
     end.
@@ -279,17 +316,42 @@ dismiss_group(LServer, GroupId, MembersInfoList) ->
 remove_members(LServer, GroupId, MembersList) ->
     MembersString = join_memberslist(MembersList),
     F = fun() ->
-        Result = ejabberd_odbc:sql_query_t([<<"select id,jid,nickname from groupuser where groupid ='">>,
-            ejabberd_odbc:escape(GroupId), <<"' and jid in ('">>, MembersString, <<"');">>]),
-        ejabberd_odbc:sql_query_t([<<"delete from groupuser where groupid ='">>, ejabberd_odbc:escape(GroupId),
-            <<"' and jid in ('">>, MembersString, <<"');">>]),
-        Result
+        Allow = case ejabberd_odbc:sql_query_t([<<"select type,project,status from groupinfo where groupid = ">>, GroupId, ";"]) of
+                    {selected, _, []} ->
+                        error;
+                    {selected, _, [{?TASK_GROUP, null, _}]} ->
+                        error;
+                    {selected, _, [{?TASK_GROUP, <<>>, _}]} ->
+                        error;
+                    {selected, _, [{?TASK_GROUP, _Project, <<"1">>}]} ->
+                        true;
+                    {selected, _, [{?TASK_GROUP, _Project, <<"2">>}]} ->
+                        finished;
+                    _ ->
+                        true
+                end,
+        case Allow of
+            true ->
+                Result = ejabberd_odbc:sql_query_t([<<"select id,jid,nickname from groupuser where groupid ='">>,
+                    ejabberd_odbc:escape(GroupId), <<"' and jid in ('">>, MembersString, <<"');">>]),
+                ejabberd_odbc:sql_query_t([<<"delete from groupuser where groupid ='">>, ejabberd_odbc:escape(GroupId),
+                    <<"' and jid in ('">>, MembersString, <<"');">>]),
+                Result;
+            false ->
+                not_valid;
+            finished ->
+                finished;
+            _ ->
+                error
+        end
     end,
     T = ejabberd_odbc:sql_transaction(LServer, F),
     case T of
         {atomic, {selected, _, Rs}} ->
             {ok, [#groupuser{id = Id, jid = Jid, nickname = NickName}
                 || {Id, Jid, NickName} <- Rs]};
+        {atomic, finished} ->
+            {error, project_finished};
         Error ->
             {error, Error}
     end.
@@ -340,9 +402,8 @@ is_user_own_group(LServer, UserJid, GroupId) ->
 -spec is_in_project(binary(), [binary()], binary()) -> true | {false, [binary()]} | {error, _}.
 is_in_project(LServer, JidList, Project) ->
     Jids = binary_join(JidList, <<"','">>),
-    Query = ["select jid from organization_user as ou, organization as o where o.project ='", Project,
-        "' and ou.jid in ('", Jids, "');"],
-    %%Query = [<<"select jid from organization_user where jid in ('">>, Jids, "') and project = ", Project, ";"],
+    Query = ["select ou.jid from organization_user as ou, organization as o where o.project ='",
+        Project, "' and o.id=ou.organization and ou.jid in ('", Jids, "');"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, R} ->
             case lists:subtract(JidList, [X || {X} <- R]) of

@@ -470,8 +470,8 @@ list_folder_ex(LServer, BareJID, Folder, Project) ->
     end.
 
 add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
-    case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        true ->
+    case check_status(LServer, Project, BareJID) of
+        {running, is_member} ->
             SBareJID = escape(BareJID),
             case query_folder_info('id-name-type-owner', LServer, ["and project='", Project, "' and id='", Parent, "';"]) of
                 [{ParentID, ParentName, ParentType, ParentOwner}] ->
@@ -494,7 +494,7 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                                     FolderJson = build_folder_result(InsertFolder),
                                     {ok, <<"[{\"parent\":\"", ParentID/binary, "\", \"folder\":", FolderJson/binary, "}]">>};
                                 _ ->
-                                    {error, ?AFT_ERR_DATABASE}
+                                    {error, ?ERR_INTERNAL_SERVER_ERROR}
                             end;
                         not_allowed ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -529,19 +529,21 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                                 {atomic, {error, exist}} ->
                                     {error, ?ERR_BAD_REQUEST};
                                 _ ->
-                                    {error, ?AFT_ERR_DATABASE}
+                                    {error, ?ERR_INTERNAL_SERVER_ERROR}
                             end;
                         _ ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
                     end
             end;
+        {finished, is_member} ->
+            {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
 add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
-    case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        true ->
+    case check_status(LServer, Project, BareJID) of
+        {running, is_member} ->
             case check_add_file_uuid_valid(LServer, UUID) of
                 invalid -> {error, ?AFT_ERR_INVALID_FILE_ID};
                 valid ->
@@ -570,14 +572,14 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                             FileJson = build_file_result(InsertFile),
                                             {ok, <<"[{\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}]">>};
                                         _ ->
-                                            {error, ?AFT_ERR_DATABASE}
+                                            {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end;
                                 not_allowed ->
                                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
                             end;
                         not_exist ->
                             case Parent of
-                                <<>> -> %% %% mean create folder in self, privilige is ok.
+                                <<>> -> %% %% mean create FILE in self, privilige is ok.
                                     F = fun() ->
                                         case ejabberd_odbc:sql_query_t(["select count(id) from folder where project='", Project, "' and type='", ?TYPE_PERSON
                                             ,"' and owner='", SBareJID, "';"]) of
@@ -605,20 +607,22 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                         {atomic, {error, exist}} ->
                                             {error, ?ERR_BAD_REQUEST};
                                         _ ->
-                                            {error, ?AFT_ERR_DATABASE}
+                                            {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end;
                                 _ ->
                                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
                             end
                     end
             end;
+        {finished, is_member} ->
+            {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
 delete_folder_ex(LServer, BareJID, ID, Project) ->
-    case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        true ->
+    case check_status(LServer, Project, BareJID) of
+        {running, is_member} ->
             case query_self_parent_info('type-name#id-name-type-owner', LServer, ID, <<"folder">>) of
                 [{SelfType, SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
                     case delete_folder_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Project) of
@@ -655,7 +659,7 @@ delete_folder_ex(LServer, BareJID, ID, Project) ->
                                 {atomic, not_exist} ->
                                     {error, ?AFT_ERR_FOLDER_NOT_EXIST};
                                 _ ->
-                                    {error, ?AFT_ERR_DATABASE}
+                                    {error, ?ERR_INTERNAL_SERVER_ERROR}
                             end;
                         not_allowed ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -663,13 +667,15 @@ delete_folder_ex(LServer, BareJID, ID, Project) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
+        {finished, is_member} ->
+            {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
 delete_file_ex(LServer, BareJID, ID, Project) ->
-    case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        true ->
+    case check_status(LServer, Project, BareJID) of
+        {running, is_member} ->
             case query_self_parent_info('name#id-name-type-owner', LServer, ID, <<"file">>) of
                 [{SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
                     case delete_file_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Project) of
@@ -683,7 +689,6 @@ delete_file_ex(LServer, BareJID, ID, Project) ->
                                             ParentType =:= ?TYPE_PUBLIC ->
                                                 store_log(LServer, BareJID, ?LOG_DELETE_FILE, <<ParentName/binary, ">", SelfName/binary>>, "",  Project);
                                             ParentType =:= ?TYPE_PUB_SUB ->
-                                                %%[{PPName}] = query_parent_info(name, LServer, ParentID, <<"folder">>),
                                                 store_log(LServer, BareJID, ?LOG_DELETE_FILE, <<Location/binary, ">", SelfName/binary>>, "", Project);
                                             true ->
                                                 nothing_to_do
@@ -692,7 +697,7 @@ delete_file_ex(LServer, BareJID, ID, Project) ->
                                     {updated, 0} ->
                                         {error, ?AFT_ERR_FILE_NOT_EXIST};
                                     _ ->
-                                        {error, ?AFT_ERR_DATABASE}
+                                        {error, ?ERR_INTERNAL_SERVER_ERROR}
                                 end;
                         not_allowed ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -700,13 +705,15 @@ delete_file_ex(LServer, BareJID, ID, Project) ->
                     _ ->
                         {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
+        {finished, is_member} ->
+            {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
 rename_file_or_folder_ex(LServer, BareJID, ID, Name, Project, Type) ->
-    case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        true ->
+    case check_status(LServer, Project, BareJID) of
+        {running, is_member} ->
             case query_self_parent_info('creator-name#id-name-type-owner', LServer, ID, Type) of
                 [{SelfUpdater, SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
                     IsAllowed = case Type  of
@@ -732,7 +739,7 @@ rename_file_or_folder_ex(LServer, BareJID, ID, Name, Project, Type) ->
                                     end,
                                     {ok, <<"{\"id\":\"", ID/binary, "\", \"name\":\"", Name/binary, "\"}">>};
                                 _ ->
-                                    {error, ?AFT_ERR_DATABASE}
+                                    {error, ?ERR_INTERNAL_SERVER_ERROR}
                             end;
                         not_allowed ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -740,6 +747,8 @@ rename_file_or_folder_ex(LServer, BareJID, ID, Name, Project, Type) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
+        {finished, is_member} ->
+            {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
@@ -809,7 +818,7 @@ share_ex(LServer, BareJID, ID, Users, Project) ->
                                         {atomic, ok} ->
                                             ok;
                                         _ ->
-                                            {error, ?AFT_ERR_DATABASE}
+                                            {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end
 
                             end;
@@ -824,12 +833,10 @@ share_ex(LServer, BareJID, ID, Users, Project) ->
     end.
 
 move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
-    case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        true ->
+    case check_status(LServer, Project, BareJID) of
+        {running, is_member} ->
             case query_self_parent_info('name#id-name-type-owner', LServer, ID, Type) of
                 [{SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
-            %case query_parent_info(id_name_type_owner, LServer, ID, Type) of
-                %[{ParentID, ParentName, ParentType, ParentOwner}] ->
                     case query_folder_info('id-name-type-owner', LServer, ["and id='", DestFolder, "';"]) of
                         [{DestID, DestName, DestType, DestOwner}] ->
                             case move_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Type, 0, Project,
@@ -875,7 +882,7 @@ move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
                                             end,
                                             ok;
                                         _ ->
-                                            {error, ?AFT_ERR_DATABASE}
+                                            {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end;
                                 not_allowed ->
                                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -886,13 +893,15 @@ move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
+        {finished, is_member} ->
+            {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
 add_version_ex(LServer, BareJID, ID, UUID, Size, Project) ->
-    case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        true ->
+    case check_status(LServer, Project, BareJID) of
+        {running, is_member} ->
             case query_self_parent_info('id-name-version_count#id-type-name-owner', LServer, ID, <<"file">>) of
                 [{_SelfID, SelfName, VersionCount, ParentID, ParentType, ParentName, ParentOwner}] -> %% _SelfID, just only check file is exist or not, can check id is valied or not.
                     case add_version_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Project) of
@@ -921,7 +930,7 @@ add_version_ex(LServer, BareJID, ID, UUID, Size, Project) ->
                                     FileJson = build_file_result(FileInfo),
                                     {ok, <<"{\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}">>};
                                 _ ->
-                                    {error, ?AFT_ERR_DATABASE}
+                                    {error, ?ERR_INTERNAL_SERVER_ERROR}
                             end;
                         not_allowed ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -929,6 +938,8 @@ add_version_ex(LServer, BareJID, ID, UUID, Size, Project) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
+        {finished, is_member} ->
+            {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
@@ -946,7 +957,7 @@ list_share_users_ex(LServer, BareJID, ID, Project) ->
                                     F = mochijson2:encoder([{utf8, true}]),
                                     {ok, iolist_to_binary(F([Owner | Users]))};
                                 _ ->
-                                    {error, ?AFT_ERR_DATABASE}
+                                    {error, ?ERR_INTERNAL_SERVER_ERROR}
                             end;
                         not_allowed ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -981,7 +992,7 @@ list_version_ex(LServer, BareJID, ID, Project) ->
                                     R1),
                                     {ok, <<"[", ResultJson/binary, "]">>};
                                 _ ->
-                                    {error, ?AFT_ERR_DATABASE}
+                                    {error, ?ERR_INTERNAL_SERVER_ERROR}
                             end;
                         not_allowed ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -1115,15 +1126,15 @@ clear_trash_ex(LServer, BareJID, Project) ->
             end,
             case ejabberd_odbc:sql_transaction(LServer, F) of
                 {atomic, ok} -> ok;
-                _ -> {error, ?AFT_ERR_DATABASE}
+                _ -> {error, ?ERR_INTERNAL_SERVER_ERROR}
             end;
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
 recover_file_ex(LServer, BareJID, ID, Name, DestFolder, Project) ->
-    case odbc_organization:is_memeber(LServer, Project, BareJID) of
-        true ->
+    case check_status(LServer, Project, BareJID) of
+        {running, is_member} ->
             case query_parent_info('id-type-name-owner-2', LServer, ID, <<"file">>) of
                 [{ParentID, ParentType, ParentName, ParentOwner}] ->
                     case query_folder_info('type-owner', LServer, ["and id='", DestFolder, "';"]) of
@@ -1166,8 +1177,28 @@ recover_file_ex(LServer, BareJID, ID, Name, DestFolder, Project) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
+        {finished, is_member} ->
+            {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
+    end.
+
+check_status(LServer, Project, JID) ->
+    Query = ["select p.status, count(ou.id) from organization_user as ou, organization as o, project as p where o.id=ou.organization and o.project='",
+        Project, "' and ou.jid='", ejabberd_odbc:escape(JID),  "' and p.id='", Project, "';"],
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        {selected, _, [{<<"0">>, <<"0">>}]} ->
+            {finished, not_member};
+        {selected, _, [{<<"0">>, <<"1">>}]} ->
+            {finished, is_member};
+        {selected, _, [{<<"1">>, <<"0">>}]} ->
+            {running, not_member};
+        {selected, _, [{<<"1">>, <<"1">>}]} ->
+            {running, is_member};
+        {selected, _, [{null, _}]} ->
+            project_not_exists;
+        _ ->
+            error
     end.
 
 
@@ -1775,6 +1806,8 @@ now_to_microseconds({Mega, Secs, Micro}) ->
 microseconds_to_now(MicroSeconds) when is_integer(MicroSeconds) ->
     Seconds = MicroSeconds div 1000000,
     {Seconds div 1000000, Seconds rem 1000000, MicroSeconds rem 1000000}.
+
+
 
 
 %% ------------------------------------------------------------------

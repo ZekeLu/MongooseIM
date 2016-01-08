@@ -250,15 +250,13 @@ process_unauthenticated_iq(Server,
                     IQ#iq{type = error, sub_el = [SubEl, ?AFT_ERR_PHONE_EXIST]};
                 not_exist ->
                     case get_code(Phone, 600, 60, <<"code_">>) of
-                        {ok, Code} ->
+                        {ok, _Code} ->
                             IQ#iq{type = result,
                                 sub_el = [#xmlel{name = <<"query">>,
                                     attrs = [{<<"xmlns">>, <<"aft:register">>},
                                         {<<"subtype">>, <<"reg_get_code">>}],
                                     children = [#xmlel{name = <<"phone">>,
-                                        children = [#xmlcdata{content = Phone}]},
-                                        #xmlel{name = <<"code">>,
-                                            children = [#xmlcdata{content = Code}]}]}]};
+                                        children = [#xmlcdata{content = Phone}]}]}]};
                         {error, Error} ->
                             IQ#iq{type = error, sub_el = [SubEl, Error]}
                     end;
@@ -352,8 +350,9 @@ try_register(Phone, Nick, Code, Server, _Lang, IpAddress) ->
                             Temp = generate_token(),
                             Token = <<"setpwd_", Temp/binary>>,
                             case ejabberd_auth_odbc:user_info(Server, Phone) of
-                                {error, _} ->
-                                    {error, ?AFT_ERR_DATABASE};
+                                {error, Error} ->
+                                    ?ERROR_MSG("try_register error=~p~n", [Error]),
+                                    {error, ?ERR_INTERNAL_SERVER_ERROR};
                                 {info, _} ->
                                     ejabberd_redis:cmd(["DEL", [<<"code_", Phone/binary>>]]),
                                     {error, ?AFT_ERR_PHONE_EXIST};
@@ -412,8 +411,9 @@ find(Phone, Code, Server, _Lang, _IpAddress) ->
                             {ok, {Phone,Token}};
                         not_exist ->
                             {error, ?AFT_ERR_PHONE_NOT_EXIST};
-                        _ ->
-                            {error, ?AFT_ERR_DATABASE}
+                        {error, Error} ->
+                            ?ERROR_MSG("find error=~p~n", [Error]),
+                            {error, ?ERR_INTERNAL_SERVER_ERROR}
                     end;
                true ->
                     {error, ?AFT_ERR_BAD_CODE}
@@ -436,7 +436,7 @@ try_set_password(Token, Password, Server) ->
                                         ok ->
                                             {ok, {ok, Phone}};
                                         _ ->
-                                            {error, ?AFT_ERR_DATABASE}
+                                            {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end;
                                 {error, invalid_password} ->
                                     {error, ?AFT_ERR_BAD_PASSWORD_FORMAT};
@@ -448,7 +448,7 @@ try_set_password(Token, Password, Server) ->
                         not_exist ->
                             {error, ?AFT_ERR_PHONE_NOT_EXIST};
                         _ ->
-                            {error, ?AFT_ERR_DATABASE}
+                            {error, ?ERR_INTERNAL_SERVER_ERROR}
                     end;
                 _ ->
                     {error, ?AFT_ERR_LOGIC_SERVER}
@@ -531,18 +531,19 @@ change_phone(User, Server, Phone, Token) ->
                 [undefined] ->
                     {error, ?AFT_ERR_BAD_CODE};
                 [CacheToken] ->
-                    if CacheToken =:= Token ->
-                        case ejabberd_auth_odbc:user_info(Server, Phone) of
-                            {info, {UserName, _, _}} ->
-                                if UserName =:= User -> {error, ?ERR_BAD_REQUEST};
-                                    true -> {error, ?AFT_ERR_PHONE_EXIST}
-                                end;
-                            not_exist ->
-                                get_code(Phone, 600, 60, <<"change_code_">>),
-                                {ok, Phone};
-                            _ ->
-                                {error, ?AFT_ERR_PHONE_EXIST}
-                        end;
+                    if
+                        CacheToken =:= Token ->
+                            case ejabberd_auth_odbc:user_info(Server, Phone) of
+                                {info, {UserName, _, _}} ->
+                                    if UserName =:= User -> {error, ?ERR_BAD_REQUEST};
+                                        true -> {error, ?AFT_ERR_PHONE_EXIST}
+                                    end;
+                                not_exist ->
+                                    get_code(Phone, 600, 60, <<"change_code_">>),
+                                    {ok, Phone};
+                                _ ->
+                                    {error, ?AFT_ERR_PHONE_EXIST}
+                            end;
                         true ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
                     end
@@ -562,7 +563,7 @@ verify_change_phone(User, Server, Phone, Code) ->
                 ejabberd_redis:cmd(["DEL", [<<"change_code_", Phone/binary>>]]),
                 case ejabberd_auth_odbc:update_phone(User, Server, Phone) of
                     true -> {ok, Phone};
-                    false ->{error, ?AFT_ERR_DATABASE}
+                    false -> {error, ?ERR_INTERNAL_SERVER_ERROR}
                 end;
                 true ->
                     {error, ?AFT_ERR_BAD_CODE}

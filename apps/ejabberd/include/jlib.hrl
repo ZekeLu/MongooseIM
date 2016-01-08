@@ -380,6 +380,8 @@
     jlib:aft_stanza_error(<<"13012">>,<<"modify">>,<<"undefined-condition">>)).
 -define(AFT_ERR_DELETE_ADMIN,
     jlib:aft_stanza_error(<<"13013">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_TASK_RUNNING,
+    jlib:aft_stanza_error(<<"13014">>,<<"modify">>,<<"undefined-condition">>)).
 
 %% project error: 16000 ~ 16999
 -define(AFT_ERR_FILE_NOT_EXIST,

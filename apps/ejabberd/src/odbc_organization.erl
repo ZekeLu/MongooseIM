@@ -365,7 +365,7 @@ delete_employee(LServer, Project, Jid, Job) ->
     case ejabberd_odbc:sql_transaction(LServer, F) of
         {atomic, ok} ->
             {ok, TimeString};
-        not_exist ->
+        {atomic, not_exist} ->
             {error, not_exist};
         Reason ->
             {error, Reason}
@@ -424,14 +424,24 @@ add_project(LServer, #project{name = Name, description = Desc, admin = Admin}, T
 -spec finish_project(binary(), odbc_organization:pro_type()) -> ok | {error, _}.
 finish_project(LServer, Project) ->
     F = fun() ->
+        Query1 = ["select count(groupid) from groupinfo where project='", Project, "' and type='2' and status='1';"],
+        case ejabberd_odbc:sql_query_t(Query1) of
+            {selected, _, [{<<"0">>}]} ->
                 {selected, [<<"time">>], [{Time}]} = ejabberd_odbc:sql_query_t(["select current_timestamp() as time;"]),
-                Query = ["update project set status='0', end_at='", Time, "' where id=", Project],
-                R = ejabberd_odbc:sql_query_t(Query),
-                {R, Time}
+                Query2 = ["update project set status='0', end_at='", Time, "' where id=", Project],
+                R = ejabberd_odbc:sql_query_t(Query2),
+                {R, Time};
+            {selected, _, _C} ->
+                continue;
+            Error ->
+                Error
+        end
         end,
     case ejabberd_odbc:sql_transaction(LServer, F) of
         {atomic, {{updated, _Counter}, Time}} ->
             {ok, Time};
+        {atomic, continue} ->
+            {continue, task};
         Reason ->
             {error, Reason}
     end.
@@ -728,7 +738,7 @@ delete_task(LServer, Project, JID) ->
                     PairTasks = [R || { R } <- Result],
                     {continue, PairTasks};
                 _ ->
-                    {error, ?AFT_ERR_DATABASE}
+                    {error, ?ERR_INTERNAL_SERVER_ERROR}
             end;
         _ ->
             ok
