@@ -503,29 +503,36 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                     case Parent of
                         <<>> -> %% %% mean create folder in self, privilige is ok.
                             F = fun() ->
-                                case ejabberd_odbc:sql_query_t(["select count(id) from folder where project='", Project, "' and type='", ?TYPE_PERSON
-                                    ,"' and owner='", SBareJID, "';"]) of
-                                    {selected,_,[{<<"0">>}]} ->
+                                ParentFolderStatus =
+                                    case ejabberd_odbc:sql_query_t([query_folder_column(normal), "and project='", Project, "' and type='", ?TYPE_PERSON, "' and owner='", SBareJID, "';"]) of
+                                        {selected, _, []} ->
+                                            {updated, 1} = ejabberd_odbc:sql_query_t( ["insert into folder(type, name, creator, owner, parent, project) values('",
+                                                ?TYPE_PERSON, "', '', '", SBareJID, "', '", SBareJID, "', '-1', '", Project, "');"]),
+                                            {selected, _, [{ParentFolderID1, _Type, _Name, _Create, _Owner, _Create_at}]} =
+                                                {selected, _, ParentFolder1} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
+                                            {ok, ParentFolderID1, ParentFolder1};
+                                        {selected, _, ParentFolder2} ->
+                                            [{ParentFolderID2, _Type, _Name, _Create, _Owner, _Create_at}] = ParentFolder2,
+                                            {ok, ParentFolderID2, ParentFolder2};
+                                        _ ->
+                                            error
+                                    end,
+                                case ParentFolderStatus of
+                                    {ok, ParentFolderID, ParentFolder} ->
                                         {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('",
-                                            ?TYPE_PERSON, "', '', '", SBareJID, "', '", SBareJID, "', '-1', '", Project, "');"]),
-                                        {selected, _, [{ID1, _Type, _Name, _Create, _Owner, _Create_at}]} =
-                                            {selected, _, ParentFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
-                                        {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('",
-                                            ?TYPE_PER_PUBLIC, "', '", escape(Name), "', '", SBareJID, "', '", SBareJID, "', '", ID1, "', '", Project, "');"]),
-                                        {selected, _, InsertFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
-                                        {ok, ID1, ParentFolder, InsertFolder};
-                                    {selected,_,[{_C}]} ->
-                                        {error, exist};
+                                             ?TYPE_PER_PUBLIC, "', '", escape(Name), "', '", SBareJID, "', '", SBareJID, "', '", ParentFolderID, "', '", Project, "');"]),
+                                         {selected, _, InsertFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
+                                         {ok, ParentFolderID, ParentFolder, InsertFolder};
                                     _ ->
                                         error
                                 end
                             end,
                             case ejabberd_odbc:sql_transaction(LServer, F) of
-                                {atomic, {ok, ParentID, ParentFolder, InsertFolder}} ->
+                                {atomic, {ok, ParentFolderID, ParentFolder, InsertFolder}} ->
                                     ParentFolderJson = build_folder_result(ParentFolder),
                                     FolderJson = build_folder_result(InsertFolder),
                                     {ok, <<"[{\"parent\":\"-1\", \"folder\":", ParentFolderJson/binary,
-                                        "}, {\"parent\":\"", ParentID/binary, "\", \"folder\":", FolderJson/binary, "}]">>};
+                                        "}, {\"parent\":\"", ParentFolderID/binary, "\", \"folder\":", FolderJson/binary, "}]">>};
                                 {atomic, {error, exist}} ->
                                     {error, ?ERR_BAD_REQUEST};
                                 _ ->
@@ -581,31 +588,36 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                             case Parent of
                                 <<>> -> %% %% mean create FILE in self, privilige is ok.
                                     F = fun() ->
-                                        case ejabberd_odbc:sql_query_t(["select count(id) from folder where project='", Project, "' and type='", ?TYPE_PERSON
-                                            ,"' and owner='", SBareJID, "';"]) of
-                                            {selected,_,[{<<"0">>}]} ->
+                                        ParentFolderStatus =
+                                        case ejabberd_odbc:sql_query_t([query_folder_column(normal), "and project='", Project, "' and type='", ?TYPE_PERSON, "' and owner='", SBareJID, "';"]) of
+                                            {selected, _, []} ->
                                                 {updated, 1} = ejabberd_odbc:sql_query_t( ["insert into folder(type, name, creator, owner, parent, project) values('",
                                                     ?TYPE_PERSON, "', '', '", SBareJID, "', '", SBareJID, "', '-1', '", Project, "');"]),
-                                                {selected, _, [{ID1, _Type, _Name, _Create, _Owner, _Create_at}]} =
-                                                    {selected, _, ParentFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
-                                                {updated, 1} = ejabberd_odbc:sql_query_t(["insert into file(uuid, name, size_byte, creator, version_count, folder) values('", ejabberd_odbc:escape(UUID), "', '",
-                                                    ejabberd_odbc:escape(Name), "', '", Size, "', '", ejabberd_odbc:escape(BareJID), "', '1', '", ID1, "');"]),
+                                                {selected, _, [{ParentFolderID1, _Type, _Name, _Create, _Owner, _Create_at}]} =
+                                                    {selected, _, ParentFolder1} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
+                                                {ok, ParentFolderID1, ParentFolder1};
+                                            {selected, _, ParentFolder2} ->
+                                                [{ParentFolderID2, _Type, _Name, _Create, _Owner, _Create_at}] = ParentFolder2,
+                                                {ok, ParentFolderID2, ParentFolder2};
+                                            _ ->
+                                                error
+                                        end,
+                                        case ParentFolderStatus of
+                                            {ok, ParentFolderID, ParentFolder} ->
+                                                {updated, 1} = ejabberd_odbc:sql_query_t(["insert into file(uuid, name, size_byte, creator, version_count, folder) values('", escape(UUID), "', '",
+                                                    escape(Name), "', '", Size, "', '", escape(BareJID), "', '1', '", ParentFolderID, "');"]),
                                                 {selected, _, InsertFile} = ejabberd_odbc:sql_query_t([query_file_column(normal), "and id=last_insert_id();"]),
-                                                {ok, ID1, ParentFolder, InsertFile};
-                                            {selected,_,[{_C}]} ->
-                                                {error, exist};
+                                                {ok, ParentFolderID, ParentFolder, InsertFile};
                                             _ ->
                                                 error
                                         end
                                     end,
                                     case ejabberd_odbc:sql_transaction(LServer, F) of
-                                        {atomic, {ok, ParentID, ParentFolder, InsertFile}} ->
+                                        {atomic, {ok, ParentFolderID, ParentFolder, InsertFile}} ->
                                             ParentFolderJson = build_folder_result(ParentFolder),
                                             FileJson = build_file_result(InsertFile),
                                             {ok, <<"[{\"parent\":\"-1\", \"folder\":", ParentFolderJson/binary,
-                                                "}, {\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}]">>};
-                                        {atomic, {error, exist}} ->
-                                            {error, ?ERR_BAD_REQUEST};
+                                                "}, {\"parent\":\"", ParentFolderID/binary, "\", \"file\":", FileJson/binary, "}]">>};
                                         _ ->
                                             {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end;
