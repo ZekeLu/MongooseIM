@@ -1349,7 +1349,7 @@ move_privilige(LServer, BareJID, Folder, Type, Owner,
                                            allowed;
                                        (BareJID =:= DestOwner) ->
                                            allowed;
-                                       true -> now_allowd
+                                       true -> not_allowed
                                    end;
                                true ->
                                    not_allowed
