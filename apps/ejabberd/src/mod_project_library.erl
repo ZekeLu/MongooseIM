@@ -36,6 +36,8 @@
 -define(LOG_ADD_FILE_VERSION,   <<"7">>).
 -define(LOG_RECOVER_FILE,       <<"8">>).
 
+-define(FILE_PAGE_ITEM_COUNT, <<"10">>).
+
 start(Host, _Opts) ->
     start_worker(Host),
     gen_iq_handler:add_iq_handler(ejabberd_sm, Host,
@@ -97,6 +99,10 @@ process_iq(From, To, #iq{xmlns = ?NS_AFT_LIBRARY, type = _Type, sub_el = SubEl} 
             clear_trash(From, To, IQ);
         <<"recover_file">> ->
             recover_file(From, To, IQ);
+        <<"get_normal_uuid">> ->
+            get_normal_uuid(From, To, IQ);
+        <<"search_file">> ->
+            search_file(From, To, IQ);
         _ ->
             IQ#iq{type = error, sub_el = [SubEl, ?ERR_BAD_REQUEST]}
     end;
@@ -418,6 +424,48 @@ recover_file(_, _, IQ) ->
     IQ#iq{type = error, sub_el = [?ERR_BAD_REQUEST]}.
 
 
+get_normal_uuid(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
+    #jid{user = U, server = S} = From,
+    BareJID = <<U/binary, "@", S/binary>>,
+    Project = xml:get_tag_attr_s(<<"project">>, SubEl),
+    IDList = mochijson2:decode(xml:get_tag_cdata(SubEl)),
+
+    case get_normal_uuid_ex(S, BareJID, IDList, Project) of
+        {error, Error} ->
+            IQ#iq{type = error, sub_el = [SubEl, Error]};
+        {ok, Result} ->
+            IQ#iq{type = result,
+                sub_el = [SubEl#xmlel{children = [{xmlcdata, Result}]}]}
+    end;
+get_normal_uuid(_, _, IQ) ->
+    IQ#iq{type = error, sub_el = [?ERR_BAD_REQUEST]}.
+
+search_file(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
+    #jid{user = U, server = S} = From,
+    BareJID = <<U/binary, "@", S/binary>>,
+    Project = xml:get_tag_attr_s(<<"project">>, SubEl),
+    {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
+    {_, Folder} = lists:keyfind(<<"folder">>, 1, Data),
+    {_, Page} = lists:keyfind(<<"page">>, 1, Data),
+    {_, Name} = lists:keyfind(<<"name">>, 1, Data),
+    Count = case lists:keyfind(<<"count">>, 1, Data) of
+                {_, <<>>} ->
+                    ?FILE_PAGE_ITEM_COUNT;
+                {_, Value} ->
+                    integer_to_binary(binary_to_integer(Value, true, 1, 50));
+                false ->
+                    ?FILE_PAGE_ITEM_COUNT
+            end,
+    case search_file_ex(S, BareJID, Project, Folder, Name, Page, Count) of
+        {error, Error} ->
+            IQ#iq{type = error, sub_el = [SubEl, Error]};
+        {ok, Result} ->
+            IQ#iq{type = result,
+                sub_el = [SubEl#xmlel{children = [{xmlcdata, Result}]}]}
+    end;
+
+search_file(_, _, IQ) ->
+    IQ#iq{type = error, sub_el = [?ERR_BAD_REQUEST]}.
 
 %% ------------------------------------------------------------------
 %% bridge betwwen odbc and higer function.
@@ -640,7 +688,7 @@ delete_folder_ex(LServer, BareJID, ID, Project) ->
                     case delete_folder_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Project) of
                         allowed ->
                             {ok, Location} =  get_folder_dir(LServer, ParentID, ParentType, ParentName),
-                            DeleteTime = now_to_microseconds(now()),
+                            DeleteTime = now_to_microseconds(erlang:now()),
                             F = fun() ->
                                 {updated, _} = ejabberd_odbc:sql_query_t(["update file set status='0', location='", escape(<<Location/binary, ">", SelfName/binary>>),
                                     "', deleted_at='", integer_to_binary(DeleteTime), "' where folder='", ID, "'"]),
@@ -693,7 +741,7 @@ delete_file_ex(LServer, BareJID, ID, Project) ->
                     case delete_file_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Project) of
                         allowed ->
                             {ok, Location} = get_file_dir(LServer, ParentID, ParentType, ParentName),
-                            DeleteTime = now_to_microseconds(now()),
+                            DeleteTime = now_to_microseconds(erlang:now()),
                              case ejabberd_odbc:sql_query(LServer, ["update file set status='0', location='", escape(Location),
                                 "' , deleted_at='", integer_to_binary(DeleteTime), "' where id='", ID, "';"]) of
                                     {updated, 1} ->
@@ -1195,6 +1243,168 @@ recover_file_ex(LServer, BareJID, ID, Name, DestFolder, Project) ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
+get_normal_uuid_ex(LServer, BareJID, IDList, Project) ->
+    case check_status(LServer, Project, BareJID) of
+        {_, is_member} ->
+            SBareJID = escape(BareJID),
+            List = parse_json_list([<<"id">>, <<"uuid">>], IDList, []),
+            {ValidList, InvalidList} = check_id_uuid_valid(LServer, Project, List, BareJID),
+            {InsertValues, ReturnValidList} =
+                lists:foldl(fun({E_ID, E_UUID, E_FileName}, {AccIn1, AccIn2}) ->
+                    NewUUID = jlib:generate_uuid(),
+                    SE_FileName = escape(E_FileName),
+                    AccIn1_1 = if
+                                 AccIn1 =:= <<>> -> <<>>;
+                                 true -> <<AccIn1/binary, ",">>
+                             end,
+                    AccIn2_1 = if
+                                 AccIn2 =:= <<>> -> <<>>;
+                                 true -> <<AccIn2/binary, ",">>
+                             end,
+                    Real_UUID = case ejabberd_odbc:sql_query(LServer, ["select uid from mms_file where id='", E_UUID, "';"]) of
+                                    {selected, _, [{R}]} -> R;
+                                    _ -> <<>>
+                                end,
+                    {<<AccIn1_1/binary, "('", NewUUID/binary, "', '", Real_UUID/binary, "', '", SE_FileName/binary, "', '2', '", SBareJID/binary,"')">>,
+                        <<AccIn2_1/binary, "{\"id\":\"", E_ID/binary, "\", \"uuid\":\"", E_UUID/binary, "\", \"normal_uuid\":\"", NewUUID/binary, "\"}">>}
+                end,
+                {<<>>, <<>>},
+                ValidList),
+
+            if
+                (ValidList =:= []) and (InvalidList =:= []) ->
+                    {ok, <<"[]">>};
+                true ->
+                    InsertResult = case InsertValues of
+                                       <<>> -> ok;
+                                       _ ->
+                                           Query = ["insert into mms_file (id, uid, filename, type, owner) values ", InsertValues],
+                                           case ejabberd_odbc:sql_query(LServer, Query) of
+                                               {updated, _} -> ok;
+                                               _ ->
+                                                   error
+                                           end
+                                   end,
+                    case InsertResult of
+                        ok ->
+                            ReturnList = lists:foldl(fun(E, AccIn) ->
+                                case E of
+                                    {E_ID, E_UUID} ->
+                                        case AccIn of
+                                            <<>> -> <<"{\"id\":\"", E_ID/binary, "\", \"uuid\":\"", E_UUID/binary, "\", \"normal_uuid\":\"\"}">>;
+                                            _ -> <<AccIn/binary, ", {\"id\":\"", E_ID/binary, "\", \"uuid\":\"", E_UUID/binary, "\", \"normal_uuid\":\"\"}">>
+                                        end;
+                                    {E_ID} ->
+                                        case AccIn of
+                                            <<>> -> <<"{\"id\":\"", E_ID/binary, "\", \"uuid\":\"\", \"normal_uuid\":\"\"}">>;
+                                            _ -> <<AccIn/binary, ", {\"id\":\"", E_ID/binary, "\", \"uuid\":\"\", \"normal_uuid\":\"\"}">>
+                                        end
+                                end
+                            end,
+                                ReturnValidList,
+                                InvalidList),
+                            {ok, <<"[", ReturnList/binary, "]">>};
+                        error ->
+                            {error, ?ERR_INTERNAL_SERVER_ERROR}
+                    end
+            end;
+        _ ->
+            {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
+    end.
+check_id_uuid_valid(_LServer, _Project, [], _BareJID) ->
+    {[], []};
+check_id_uuid_valid(LServer, Project, List, _BareJID) ->
+    %% file exist and not delete; file in project; id and uuid are right.
+    {Query1Condition, Query2Condition} =
+    lists:foldl(fun(E, {AccIn1, AccIn2}) ->
+        case E of
+            {ID} ->
+                AccOut1 = case AccIn1 of
+                              [] -> [" (file.id='", ID, "') "];
+                              _ -> [AccIn1 | [" or ( file.id='", ID, "') "]]
+                          end,
+                {AccOut1, AccIn2};
+            {ID, <<>>} ->
+                AccOut1 = case AccIn1 of
+                              [] -> [" (file.id='", ID, "') "];
+                              _ -> [AccIn1 | [" or ( file.id='", ID, "') "]]
+                          end,
+                {AccOut1, AccIn2};
+            {ID, UUID} ->
+                AccOut1 = case AccIn1 of
+                              [] -> [" (file.id='", ID, "' and file.uuid='", UUID, "') "];
+                              _ -> [AccIn1 | [" or ( file.id='", ID, "' and file.uuid='", UUID, "') "]]
+                          end,
+                AccOut2 = case AccIn2 of
+                              [] -> [" (fv.file='", ID, "' and fv.uuid='", UUID, "') "];
+                              _ -> [AccIn2 | [" or ( fv.file='", ID, "' and fv.uuid='", UUID, "') "]]
+                          end,
+                {AccOut1, AccOut2}
+        end
+        end,
+        {[],[]},
+        List),
+    Query1 = ["select file.id, file.uuid, file.name from file, folder where (file.folder=folder.id and folder.project='",
+        Project, "' and file.status='1') and (", Query1Condition, ")"],
+    Query2 = ["select fv.file, fv.uuid, f.name from file_version as fv, file as f, folder as fo where (fv.file=f.id and f.folder=fo.id and fo.project='",
+        Project, "' and f.status='1') and ( ", Query2Condition, " )"],
+    F = fun() ->
+        {selected, _, R1} = ejabberd_odbc:sql_query_t(Query1),
+        R2 = case Query2Condition of
+                 [] ->
+                     [];
+                 _ ->
+                     {selected, _, Result} = ejabberd_odbc:sql_query_t(Query2),
+                     Result
+             end,
+        {ok, R1, R2}
+    end,
+    case ejabberd_odbc:sql_transaction(LServer, F) of
+        {atomic, {ok, R1, R2}} ->
+            R = lists:flatten( [R1 | R2] ),
+            InvalidList = lists:foldl(fun(Ele, AccIn) ->
+                case Ele of
+                    {Ele_ID, _Ele_UUID} ->
+                        case lists:keyfind(Ele_ID, 1, R) of
+                            false -> [ Ele | AccIn];
+                            _ -> AccIn
+                        end;
+                    {Ele_ID} ->
+                        case lists:keyfind(Ele_ID, 1, R) of
+                            false -> [ {Ele_ID, <<>>} | AccIn];
+                            _ -> AccIn
+                        end
+                end
+                end,
+                [],
+                List),
+            {R, InvalidList};
+        _ ->
+            {error, ?ERR_INTERNAL_SERVER_ERROR}
+    end.
+
+search_file_ex(LServer, BareJID, Project, Folder, Name, Page, Count) ->
+    case check_status(LServer, Project, BareJID) of
+        {_, is_member} ->
+            SBareJID = escape(BareJID),
+            SName = escape(Name),
+            StartLine = integer_to_binary((binary_to_integer(Page) - 1) * binary_to_integer(Count)),
+            Query = ["select f.id,f.uuid,f.name,f.size_byte,f.creator,f.version_count,f.folder,f.created_at from file as f, folder as fo ",
+                "where (f.status='1' and fo.project='", Project, "' and (fo.owner='admin' or fo.owner='", SBareJID,
+                "')) and ((f.folder=fo.id and f.folder='", Folder, "') or (f.folder=fo.id and fo.parent='", Folder,
+                "')) and f.name like '%", SName, "%' order by f.created_at desc limit ", StartLine, ",", Count, ";"],
+            case ejabberd_odbc:sql_query(LServer, Query) of
+                {selected, _, R} ->
+                    FileJson = build_file_result(R),
+                    {ok, <<"{\"folder\":\"", Folder/binary, "\", \"name\":\"", Name/binary, "\", \"page\":\"", Page/binary,
+                    "\", \"count\":\"", Count/binary, "\", \"file\":", FileJson/binary, "}">>};
+                _ ->
+                    {error, ?ERR_INTERNAL_SERVER_ERROR}
+            end;
+        _ ->
+            {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
+    end.
+
 check_status(LServer, Project, JID) ->
     Query = ["select p.status, count(ou.id) from organization_user as ou, organization as o, project as p where o.id=ou.organization and o.project='",
         Project, "' and ou.jid='", ejabberd_odbc:escape(JID),  "' and p.id='", Project, "';"],
@@ -1277,7 +1487,7 @@ download_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner) ->
     if
         (ParentType =:= ?TYPE_PUBLIC) or (ParentType =:= ?TYPE_PUB_SUB) or (ParentType =:= ?TYPE_PERSON) or (ParentType =:= ?TYPE_PER_PUBLIC) ->
             allowed;
-        ?TYPE_PER_SHARE ->
+        ParentType =:= ?TYPE_PER_SHARE ->
             if
                 BareJID =:= ParentOwner -> allowed;
                 true ->
@@ -1287,7 +1497,7 @@ download_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner) ->
                         _ -> not_allowed
                     end
             end;
-        ?TYPE_PER_PRIVATE ->
+        ParentType =:= ?TYPE_PER_PRIVATE ->
             if
                 BareJID =:= ParentOwner -> allowed;
                 true -> not_allowed
@@ -1819,7 +2029,19 @@ microseconds_to_now(MicroSeconds) when is_integer(MicroSeconds) ->
     Seconds = MicroSeconds div 1000000,
     {Seconds div 1000000, Seconds rem 1000000, MicroSeconds rem 1000000}.
 
-
+parse_item([], _, Result) ->
+    list_to_tuple(lists:reverse(Result));
+parse_item([H | T], List, Result) ->
+    R = case lists:keyfind(H, 1, List) of
+            false -> Result;
+            {H, Value} -> [Value | Result]
+        end,
+    parse_item(T, List, R).
+parse_json_list(_, [], Result) ->
+    lists:reverse(Result);
+parse_json_list(Keys, [{struct, H} | T], Result) ->
+    R = parse_item(Keys, H, []),
+    parse_json_list(Keys, T, [R | Result]).
 
 
 %% ------------------------------------------------------------------
