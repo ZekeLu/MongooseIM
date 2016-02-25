@@ -526,10 +526,15 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                     case create_folder_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Project) of
                         {allowed, SelfType} ->
                             F = fun() ->
-                                {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('", SelfType, "', '",
-                                    ejabberd_odbc:escape(Name), "', '", SBareJID, "', '", escape(ParentOwner), "', '", ParentID, "', '", Project, "');"]),
-                                {selected, _, InsertFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
-                                {ok, InsertFolder}
+                                case ejabberd_odbc:sql_query_t(["select count(id) from folder where parent='", ParentID, "' and name='", escape(Name), "' and status='1';"]) of
+                                    {selected,_,[{<<"0">>}]} ->
+                                        {updated, 1} = ejabberd_odbc:sql_query_t(["insert into folder(type, name, creator, owner, parent, project) values('", SelfType, "', '",
+                                            ejabberd_odbc:escape(Name), "', '", SBareJID, "', '", escape(ParentOwner), "', '", ParentID, "', '", Project, "');"]),
+                                        {selected, _, InsertFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
+                                        {ok, InsertFolder};
+                                    _ ->
+                                        folder_exist
+                                end
                             end,
                             case ejabberd_odbc:sql_transaction(LServer, F) of
                                 {atomic, {ok, InsertFolder}} ->
@@ -541,6 +546,8 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                                     end,
                                     FolderJson = build_folder_result(InsertFolder),
                                     {ok, <<"[{\"parent\":\"", ParentID/binary, "\", \"folder\":", FolderJson/binary, "}]">>};
+                                {atomic, folder_exist} ->
+                                    {error, ?AFT_ERR_FOLDER_EXIST};
                                 _ ->
                                     {error, ?ERR_INTERNAL_SERVER_ERROR}
                             end;
@@ -561,7 +568,12 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                                             {ok, ParentFolderID1, ParentFolder1};
                                         {selected, _, ParentFolder2} ->
                                             [{ParentFolderID2, _Type, _Name, _Create, _Owner, _Create_at}] = ParentFolder2,
-                                            {ok, ParentFolderID2, ParentFolder2};
+                                            case ejabberd_odbc:sql_query_t(["select count(id) from folder where parent='", ParentFolderID2, "' and name='", escape(Name), "' and status='1';"]) of
+                                                {selected,_,[{<<"0">>}]} ->
+                                                    {ok, ParentFolderID2, ParentFolder2};
+                                                _ ->
+                                                    folder_exist
+                                            end;
                                         _ ->
                                             error
                                     end,
@@ -571,6 +583,8 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                                              ?TYPE_PER_PUBLIC, "', '", escape(Name), "', '", SBareJID, "', '", SBareJID, "', '", ParentFolderID, "', '", Project, "');"]),
                                          {selected, _, InsertFolder} = ejabberd_odbc:sql_query_t([query_folder_column(normal), "and id=last_insert_id();"]),
                                          {ok, ParentFolderID, ParentFolder, InsertFolder};
+                                    folder_exist ->
+                                        folder_exist;
                                     _ ->
                                         error
                                 end
@@ -581,8 +595,8 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                                     FolderJson = build_folder_result(InsertFolder),
                                     {ok, <<"[{\"parent\":\"-1\", \"folder\":", ParentFolderJson/binary,
                                         "}, {\"parent\":\"", ParentFolderID/binary, "\", \"folder\":", FolderJson/binary, "}]">>};
-                                {atomic, {error, exist}} ->
-                                    {error, ?ERR_BAD_REQUEST};
+                                {atomic, folder_exist} ->
+                                    {error, ?AFT_ERR_FOLDER_EXIST};
                                 _ ->
                                     {error, ?ERR_INTERNAL_SERVER_ERROR}
                             end;
@@ -608,10 +622,15 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                             case create_file_privilige(LServer, BareJID, ParentID, ParentType, ParentOwner, Project) of
                                 allowed ->
                                     F = fun() ->
-                                        {updated, 1} = ejabberd_odbc:sql_query_t(["insert into file(uuid, name, size_byte, creator, version_count, folder) values('",
-                                            escape(UUID), "', '", escape(Name), "', '", Size, "', '", SBareJID, "', '1', '", ParentID, "');"]),
-                                        {selected, _, InsertFile} = ejabberd_odbc:sql_query_t([query_file_column(normal), "and id=last_insert_id();"]),
-                                        {ok, InsertFile}
+                                        case ejabberd_odbc:sql_query_t(["select count(id) from file where folder='", ParentID, "' and name='", escape(Name), "' and status='1';"]) of
+                                            {selected,_,[{<<"0">>}]} ->
+                                                {updated, 1} = ejabberd_odbc:sql_query_t(["insert into file(uuid, name, size_byte, creator, version_count, folder) values('",
+                                                    escape(UUID), "', '", escape(Name), "', '", Size, "', '", SBareJID, "', '1', '", ParentID, "');"]),
+                                                {selected, _, InsertFile} = ejabberd_odbc:sql_query_t([query_file_column(normal), "and id=last_insert_id();"]),
+                                                {ok, InsertFile};
+                                            _ ->
+                                                file_exist
+                                        end
                                     end,
                                     case ejabberd_odbc:sql_transaction(LServer, F) of
                                         {atomic, {ok, InsertFile}} ->
@@ -626,6 +645,8 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                             end,
                                             FileJson = build_file_result(InsertFile),
                                             {ok, <<"[{\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}]">>};
+                                        {atomic, file_exist} ->
+                                            {error, ?AFT_ERR_FILE_EXIST};
                                         _ ->
                                             {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end;
@@ -646,7 +667,12 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                                 {ok, ParentFolderID1, ParentFolder1};
                                             {selected, _, ParentFolder2} ->
                                                 [{ParentFolderID2, _Type, _Name, _Create, _Owner, _Create_at}] = ParentFolder2,
-                                                {ok, ParentFolderID2, ParentFolder2};
+                                                case ejabberd_odbc:sql_query_t(["select count(id) from file where folder='", ParentFolderID2, "' and name='", escape(Name), "' and status='1';"]) of
+                                                    {selected,_,[{<<"0">>}]} ->
+                                                        {ok, ParentFolderID2, ParentFolder2};
+                                                    _ ->
+                                                        {error, file_exist}
+                                                end;
                                             _ ->
                                                 error
                                         end,
@@ -656,6 +682,8 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                                     escape(Name), "', '", Size, "', '", escape(BareJID), "', '1', '", ParentFolderID, "');"]),
                                                 {selected, _, InsertFile} = ejabberd_odbc:sql_query_t([query_file_column(normal), "and id=last_insert_id();"]),
                                                 {ok, ParentFolderID, ParentFolder, InsertFile};
+                                            {error, file_exist} ->
+                                                file_exist;
                                             _ ->
                                                 error
                                         end
@@ -666,6 +694,8 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                             FileJson = build_file_result(InsertFile),
                                             {ok, <<"[{\"parent\":\"-1\", \"folder\":", ParentFolderJson/binary,
                                                 "}, {\"parent\":\"", ParentFolderID/binary, "\", \"file\":", FileJson/binary, "}]">>};
+                                        {atomic, file_exist} ->
+                                            {error, ?AFT_ERR_FILE_EXIST};
                                         _ ->
                                             {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end;

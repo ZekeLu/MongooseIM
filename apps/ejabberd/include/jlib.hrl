@@ -392,6 +392,8 @@
     jlib:aft_stanza_error(<<"16002">>,<<"modify">>,<<"undefined-condition">>)).
 -define(AFT_ERR_INVALID_FILE_ID,
     jlib:aft_stanza_error(<<"16003">>,<<"modify">>,<<"undefined-condition">>)).
+-define(AFT_ERR_FOLDER_EXIST,
+    jlib:aft_stanza_error(<<"16004">>,<<"modify">>,<<"undefined-condition">>)).
 %%--------------------------------------------------------------------
 
 -record(jid, {user = <<>>      :: ejabberd:user(),
