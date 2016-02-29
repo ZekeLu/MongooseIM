@@ -163,7 +163,8 @@ add(From, _To, #iq{type = set, sub_el = SubEl} = IQ, Type) ->
                  <<"file">> ->
                      {_, UUID} = lists:keyfind(<<"uuid">>, 1, Data),
                      {_, Size} = lists:keyfind(<<"size">>, 1, Data),
-                     add_file_ex(S, BareJID, Parent, Name, UUID, Size, Project)
+                     File = find_key_value(Data, <<"file">>),
+                     add_file_ex(S, BareJID, Parent, Name, UUID, Size, Project, File)
              end,
     case Return of
         {error, Error} ->
@@ -610,12 +611,12 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
-add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
+add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project, FileID) ->
     case check_status(LServer, Project, BareJID) of
         {running, is_member} ->
-            case check_add_file_uuid_valid(LServer, UUID) of
+            case check_add_file_uuid_valid(LServer, BareJID, UUID, FileID) of
                 invalid -> {error, ?AFT_ERR_INVALID_FILE_ID};
-                valid ->
+                {valid, Type, NewUUID} ->
                     SBareJID = escape(BareJID),
                     case query_folder_info('id-name-type-owner', LServer, ["and project='", Project, "' and id='", Parent, "';"]) of
                         [{ParentID, ParentName, ParentType, ParentOwner}] ->
@@ -624,8 +625,9 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                     F = fun() ->
                                         case ejabberd_odbc:sql_query_t(["select count(id) from file where folder='", ParentID, "' and name='", escape(Name), "' and status='1';"]) of
                                             {selected,_,[{<<"0">>}]} ->
+                                                SUUID = case Type of <<"3">> -> escape(UUID); <<"2">> -> escape(NewUUID) end,
                                                 {updated, 1} = ejabberd_odbc:sql_query_t(["insert into file(uuid, name, size_byte, creator, version_count, folder) values('",
-                                                    escape(UUID), "', '", escape(Name), "', '", Size, "', '", SBareJID, "', '1', '", ParentID, "');"]),
+                                                    SUUID, "', '", escape(Name), "', '", Size, "', '", SBareJID, "', '1', '", ParentID, "');"]),
                                                 {selected, _, InsertFile} = ejabberd_odbc:sql_query_t([query_file_column(normal), "and id=last_insert_id();"]),
                                                 {ok, InsertFile};
                                             _ ->
@@ -644,7 +646,18 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                                     nothing_to_do
                                             end,
                                             FileJson = build_file_result(InsertFile),
-                                            {ok, <<"[{\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}]">>};
+                                            case Type of
+                                                <<"3">> ->
+                                                    case FileID of
+                                                        false ->
+                                                            {ok, <<"[{\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}]">>};
+                                                        _ ->
+                                                            {ok, <<"[{\"src_lib_uuid\":\"", UUID/binary, "\", \"new_lib_uuid\":\"", NewUUID/binary,
+                                                            "\"}, {\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}]">>}
+                                                    end;
+                                                <<"2">> -> {ok, <<"[{\"normal_uuid\":\"", UUID/binary, "\", \"lib_uuid\":\"", NewUUID/binary,
+                                                    "\"}, {\"parent\":\"", ParentID/binary, "\", \"file\":", FileJson/binary, "}]">>}
+                                            end;
                                         {atomic, file_exist} ->
                                             {error, ?AFT_ERR_FILE_EXIST};
                                         _ ->
@@ -678,7 +691,8 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                         end,
                                         case ParentFolderStatus of
                                             {ok, ParentFolderID, ParentFolder} ->
-                                                {updated, 1} = ejabberd_odbc:sql_query_t(["insert into file(uuid, name, size_byte, creator, version_count, folder) values('", escape(UUID), "', '",
+                                                SUUID = case Type of <<"3">> -> escape(UUID); <<"2">> -> escape(NewUUID) end,
+                                                {updated, 1} = ejabberd_odbc:sql_query_t(["insert into file(uuid, name, size_byte, creator, version_count, folder) values('", SUUID, "', '",
                                                     escape(Name), "', '", Size, "', '", escape(BareJID), "', '1', '", ParentFolderID, "');"]),
                                                 {selected, _, InsertFile} = ejabberd_odbc:sql_query_t([query_file_column(normal), "and id=last_insert_id();"]),
                                                 {ok, ParentFolderID, ParentFolder, InsertFile};
@@ -692,8 +706,19 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project) ->
                                         {atomic, {ok, ParentFolderID, ParentFolder, InsertFile}} ->
                                             ParentFolderJson = build_folder_result(ParentFolder),
                                             FileJson = build_file_result(InsertFile),
-                                            {ok, <<"[{\"parent\":\"-1\", \"folder\":", ParentFolderJson/binary,
-                                                "}, {\"parent\":\"", ParentFolderID/binary, "\", \"file\":", FileJson/binary, "}]">>};
+                                            case Type of
+                                                <<"3">> ->
+                                                    case FileID of
+                                                        false ->
+                                                            {ok, <<"[{\"parent\":\"-1\", \"folder\":", ParentFolderJson/binary,
+                                                            "}, {\"parent\":\"", ParentFolderID/binary, "\", \"file\":", FileJson/binary, "}]">>};
+                                                        _ ->
+                                                            {ok, <<"[{\"src_lib_uuid\":\"", UUID/binary, "\", \"new_lib_uuid\":\"", NewUUID/binary, "\"{\"parent\":\"-1\", \"folder\":",
+                                                            ParentFolderJson/binary,"}, {\"parent\":\"", ParentFolderID/binary, "\", \"file\":", FileJson/binary, "}]">>}
+                                                    end;
+                                                <<"2">> -> {ok, <<"[{\"normal_uuid\":\"", UUID/binary, "\", \"lib_uuid\":\"", NewUUID/binary, "\"{\"parent\":\"-1\", \"folder\":",
+                                                    ParentFolderJson/binary,"}, {\"parent\":\"", ParentFolderID/binary, "\", \"file\":", FileJson/binary, "}]">>}
+                                            end;
                                         {atomic, file_exist} ->
                                             {error, ?AFT_ERR_FILE_EXIST};
                                         _ ->
@@ -2037,10 +2062,32 @@ check_log_trash_parameter(Before, After, Count) ->
             end
     end.
 
-check_add_file_uuid_valid(LServer, UUID) ->
-    case ejabberd_odbc:sql_query(LServer, ["select id from mms_file where id='", UUID, "'"]) of
-        {selected,_,[{_ID}]} ->
-            valid;
+check_add_file_uuid_valid(LServer, JID, UUID, FileID) ->
+    case ejabberd_odbc:sql_query(LServer, ["select id, type from mms_file where id='", UUID, "'"]) of
+        {selected,_,[{ID, <<"3">>}]} ->
+            case FileID of
+                false ->
+                    {valid, <<"3">>, <<"">>};
+                _ ->
+                    case ejabberd_odbc:sql_query(LServer, ["select folder.project from file, folder, file_version where (folder.type <> '", ?TYPE_PER_PRIVATE,
+                        "') and (folder.id=file.folder) and (file.id='", FileID, "') and (file.uuid='", UUID,
+                        "' or (file.version_count >'1' and file_version.file = file.id and file_version.uuid='", UUID, "')) limit 1;"]) of
+                        {selected, _, [{FromProject}]} ->
+                            case odbc_organization:is_memeber(LServer, FromProject, JID) of
+                                true ->
+                                    {valid, <<"3">>, UUID};
+                                _ ->
+                                    invalid
+                            end;
+                        _ ->
+                            invalid
+                    end
+            end;
+        {selected,_, [{ID, <<"2">>}]} ->
+            LibUUID = jlib:generate_uuid(),
+            {updated, 1} = ejabberd_odbc:sql_query(LServer, ["insert into mms_file(id, filename, owner, uid, type) ",
+                " select '", LibUUID, "', filename, '", escape(JID),"', uid, '3' from mms_file where id='", ID,"';"]),
+            {valid, <<"2">>, LibUUID};
         _ ->
             invalid
     end.
@@ -2072,6 +2119,28 @@ parse_json_list(_, [], Result) ->
 parse_json_list(Keys, [{struct, H} | T], Result) ->
     R = parse_item(Keys, H, []),
     parse_json_list(Keys, T, [R | Result]).
+
+
+%% {_, ID} = lists:keyfind(<<"id">>, 1, Data),
+%% Users = case lists:keyfind(<<"users">>, 1, Data) of
+%%     {_, R} -> R;
+%%     _ -> false
+%%     end,
+
+find_key_value(List, Key) ->
+    find_key_value(List, Key, false).
+find_key_value(List, Key, DefaultValue) ->
+    find_key_value(List, Key, 1, DefaultValue).
+find_key_value(List, Key, KeyPosition, DefaultValue) ->
+    KeyPos = if
+                 is_binary(KeyPosition) -> binary_to_integer(KeyPosition);
+                 is_integer(KeyPosition) -> KeyPosition;
+                 true -> 1
+             end,
+    case lists:keyfind(Key, KeyPos, List) of
+        {_, R} -> R;
+        _ -> DefaultValue
+    end.
 
 
 %% ------------------------------------------------------------------
