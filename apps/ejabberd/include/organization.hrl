@@ -29,6 +29,7 @@
     depth :: binary() | integer(),
     department :: binary(),
     department_level :: binary(),
+    department_id :: binary(),
     project :: binary() | integer()
 }).
 

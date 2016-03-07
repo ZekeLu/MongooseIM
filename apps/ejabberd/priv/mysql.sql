@@ -400,11 +400,9 @@ CREATE INDEX organization_tree_index ON organization (project);
 CREATE TABLE organization_user (
     id int PRIMARY KEY NOT NULL auto_increment,
     organization int NOT NULL,
-    jid varchar(250) CHARACTER SET binary NOT NULL,
-    project int NOT NULL
+    jid varchar(250) CHARACTER SET binary NOT NULL
 ) CHARACTER SET utf8;
 CREATE INDEX organization_user_index ON organization_user (organization, jid);
-CREATE INDEX organization_user_project_index ON organization_user(project);
 
 CREATE TABLE template(
     id int PRIMARY KEY NOT NULL auto_increment,
@@ -490,6 +488,7 @@ CREATE TABLE folder(
     parent int NOT NULL DEFAULT -1,
     project int NOT NULL,
     status boolean NOT NULL DEFAULT true,
+    department_id int NOT NULL DEFAULT -1,
     created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     location varchar(250) CHARACTER SET binary,
     deleted_at BIGINT UNSIGNED NOT NULL default 0

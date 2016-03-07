@@ -141,8 +141,12 @@ get_structure(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
                         false -> false;
                         {_, Value3} -> Value3
                     end,
+    {ProID, IsTemplate} = case Template of
+                              false -> {Project, false};
+                              _ -> {Template, true}
+                          end,
 
-    case get_structure_ex(S, BaseJID, Project, ProjectTarget, Template) of
+    case get_structure_ex(S, BaseJID, ProID, ProjectTarget, IsTemplate) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result} ->
@@ -272,11 +276,10 @@ add_job(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     {_, ProID} = lists:keyfind(<<"project">>, 1, Data),
     {_, SelfJobID} = lists:keyfind(<<"self_job_id">>, 1, Data),
     {_, ParentJobID} = lists:keyfind(<<"parent_job_id">>, 1, Data),
+    {_, PartID} = lists:keyfind(<<"part_id">>, 1, Data),
     {_, JobName} = lists:keyfind(<<"job_name">>, 1, Data),
-    {_, Part} = lists:keyfind(<<"part">>, 1, Data),
-    {_, PartLevel} = lists:keyfind(<<"part_level">>, 1, Data),
 
-    case add_job_ex(S, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part, PartLevel) of
+    case add_job_ex(S, ProID, BaseJID, SelfJobID, ParentJobID, PartID, JobName) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, JobTag} ->
@@ -331,7 +334,6 @@ delete_member(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
             AllMembers = [{JID} | Result], %% include delete member.
             Content = <<"{\"project\":\"", ProID/binary,  "\", \"member_tag\":\"", MemberTag/binary,  "\", \"member\":[\"", JID/binary, "\"]}">>,
             push_message(ProID, S, AllMembers, <<"delete_member">>, Content),
-            ejabberd_hooks:run(delete_member, jlib:nameprep(S), [S, JID, ProID]),
             IQ#iq{type = result}
     end;
 delete_member(_, _, IQ) ->
@@ -568,8 +570,8 @@ list_project_ex(LServer, BaseJID, Type) ->
     end.
 
 %% remove check authority???
-get_structure_ex(LServer, BaseJID, ProID, ProjectTarget, Template) ->
-    Valid = case Template of
+get_structure_ex(LServer, BaseJID, ProID, ProjectTarget, IsTemplate) ->
+    Valid = case IsTemplate of
                 false ->
                     case odbc_organization:is_memeber(LServer, ProID, BaseJID) of
                         true ->
@@ -585,15 +587,15 @@ get_structure_ex(LServer, BaseJID, ProID, ProjectTarget, Template) ->
                         _ -> {false, ProID}
                     end;
                 _ ->
-                    {is_predefine_template(LServer, Template), Template}
+                    {is_predefine_template(LServer, ProID), integer_to_binary(0 - binary_to_integer(ProID))}
             end,
     case Valid of
         {true, Project} ->
             {ok, Result} = odbc_organization:get_structure(LServer, Project),
-            Json1 = [{struct,[{<<"id">>, R1}, {<<"name">>, R2}, {<<"left">>, R3}, {<<"right">>, R4}, {<<"part">>, R5}, {<<"part_level">>, R6}]}
-                     || {R1, R2, R3, R4, R5, R6}<- Result],
+            Json1 = [{struct,[{<<"id">>, R1}, {<<"name">>, R2}, {<<"left">>, R3}, {<<"right">>, R4}, {<<"part">>, R5}, {<<"part_level">>, R6}, {<<"part_id">>, R7}]}
+                     || {R1, R2, R3, R4, R5, R6, R7}<- Result],
             F = mochijson2:encoder([{utf8, true}]),
-            Json = iolist_to_binary( F( {struct, [{<<"project">>, Project}, {<<"structure">>, Json1}]} )),
+            Json = iolist_to_binary( F( {struct, [{<<"project">>, ProID}, {<<"structure">>, Json1}]} )),
             {ok, Json};
         {false, _} ->
             {error, ?AFT_ERR_INVALID_TEMPLATE}
@@ -602,13 +604,13 @@ get_structure_ex(LServer, BaseJID, ProID, ProjectTarget, Template) ->
 create_ex(LServer, ProjectName, BaseJID, Template, Job) ->
     case odbc_organization:is_project_name_exist(LServer, ProjectName) of
         false ->
-            case odbc_organization:node_exist(LServer, Template, Job) of
+            case odbc_organization:node_exist(LServer, integer_to_binary(0 - binary_to_integer(Template)), Job) of
                 {ok, true} ->
                     case odbc_organization:add_project(LServer, #project{name = ProjectName, description = <<"">>, admin = BaseJID}, Template, Job) of
                         {ok, #project{id = Id, name = _Name, photo = Photo ,description = _Desc, job_tag = JobTag, start_at = StartTime},
-                         #node{id = JobId, name=JobName, lft = Left, rgt = Right, department = Part, department_level = PartLevel}} ->
+                         #node{id = JobId, name=JobName, lft = Left, rgt = Right, department = Part, department_level = PartLevel, department_id = PartID}} ->
                             PhotoURL = list_to_binary(make_head_url(binary_to_list(Photo))),
-                            ejabberd_hooks:run(create_project, LServer, [LServer, Id]),
+                            ejabberd_hooks:run(create_project, LServer, [LServer, BaseJID, PartID, Template, Job, Id, JobId]),
                             {ok, <<"{\"project\":{\"id\":\"", Id/binary, "\",\"name\":\"", ProjectName/binary,
                                     "\",\"photo\":\"", PhotoURL/binary, "\",\"job_tag\":\"", JobTag/binary,
                                     "\",\"member_tag\":\"", JobTag/binary, "\",\"link_tag\":\"", JobTag/binary,
@@ -616,6 +618,7 @@ create_ex(LServer, ProjectName, BaseJID, Template, Job) ->
                                     "\"},\"job\":{\"job_id\":\"", JobId/binary, "\",\"job_name\":\"", JobName/binary,
                                     "\",\"left\":\"", Left/binary, "\",\"right\":\"", Right/binary,
                                     "\",\"part\":\"", Part/binary, "\",\"part_level\":\"", PartLevel/binary,
+                                    "\",\"part_id\":\"", PartID/binary,
                                     "\"},\"member\":{\"jid\":\"", BaseJID/binary, "\"}}">>};
                         {error, ErrorReason} ->
                             ?ERROR_MSG("Create Project failed, ProjectName=~p", [ProjectName, ErrorReason]),
@@ -708,8 +711,8 @@ list_children_jobs_ex(LServer, JID, ProID, Job) ->
     case is_admin(LServer, JID, ProID) of
         true ->
             {ok, Result} = odbc_organization:get_all_nodes(LServer, ProID),
-            Json = [{struct, [{<<"job_id">>, R1}, {<<"job_name">>, R2}, {<<"part">>, R3}, {<<"part_level">>, R4}]}
-                    || {R1, R2, R3, R4} <- Result],
+            Json = [{struct, [{<<"job_id">>, R1}, {<<"job_name">>, R2}, {<<"part">>, R3}, {<<"part_level">>, R4}, {<<"part_id">>, R5}]}
+                    || {R1, R2, R3, R4, R5} <- Result],
             F = mochijson2:encoder([{utf8, true}]),
             {ok, iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"job">>, Json}]}))};
         false ->
@@ -718,8 +721,8 @@ list_children_jobs_ex(LServer, JID, ProID, Job) ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH};
                 true ->
                     {ok, Result} = odbc_organization:get_children_job(LServer, Job, ProID),
-                    Json = [{struct, [{<<"job_id">>, R1}, {<<"job_name">>, R2}, {<<"part">>, R3}, {<<"part_level">>, R4}]}
-                            || {R1, R2, R3, R4} <- Result],
+                    Json = [{struct, [{<<"job_id">>, R1}, {<<"job_name">>, R2}, {<<"part">>, R3}, {<<"part_level">>, R4}, {<<"part_id">>, R5}]}
+                            || {R1, R2, R3, R4, R5} <- Result],
                     F = mochijson2:encoder([{utf8, true}]),
                     {ok, iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"job">>, Json}]}))}
             end
@@ -731,29 +734,29 @@ check_add_member_valid(LServer, ProID, _BaseJID, List) ->
     case odbc_organization:get_structure(LServer, ProID) of
         {ok, Result} ->
             {ValidJobList, _InvalidJobList} = lists:partition(
-                                                fun({E_ID, _}) ->
-                                                        case lists:keyfind(E_ID, 1, Result) of
-                                                            false -> false;
-                                                            _ -> true
-                                                        end
-                                                end,
-                                                List),
+                fun({E_ID, _}) ->
+                    case lists:keyfind(E_ID, 1, Result) of
+                        false -> false;
+                        _ -> true
+                    end
+                end,
+                List),
             {ok, Result2} = odbc_organization:get_all(LServer, ProID),
             ExistList = lists:filtermap(
-                          fun({E_JID, E_ID, _E_Name, _E_Part}) ->
-                                  {true, {E_ID, E_JID}}
-                          end,
-                          Result2),
-            {ValidList, _DuplicationList} = lists:partition(
-                                              fun(E) ->
-                                                      case lists:member(E, ExistList) of
-                                                          false -> true;
-                                                          _ -> false
-                                                      end
-                                              end,
+                fun({E_JID, E_ID, _E_Name, _E_Part}) ->
+                    {true, {E_ID, E_JID}}
+                end,
+                Result2),
+            {ValidList, _DuplicationJIDList} = lists:partition(
+                fun({E_ID, E_JID}) ->
+                    case lists:keyfind(E_JID, 2, ExistList) of
+                        false -> true;
+                        _ -> false
+                    end
+                end,
                                               ValidJobList),
-            ?ERROR_MSG("add_member invalid job list:~p~n,duplication list:~p",
-                       [_InvalidJobList, _DuplicationList]),
+            ?ERROR_MSG("add_member invalid job list:~p~n,duplicationjidlist:~p",
+                       [_InvalidJobList, _DuplicationJIDList]),
             {ok, ValidList};
         _ ->
             {error, ?ERR_INTERNAL_SERVER_ERROR}
@@ -771,6 +774,7 @@ add_member_ex(LServer, ProID, BaseJID, List) ->
                             if length(ValidList) > 0 ->
                                     case odbc_organization:add_employees(LServer, ProID, BaseJID, ValidList) of
                                         {ok, MemberTag} ->
+                                            ejabberd_hooks:run(add_member, LServer, [LServer, ProID, ValidList]),
                                             {ok, MemberTag, ValidList};
                                         {error, ErrorReason} ->
                                             ?ERROR_MSG("add_member error, reason=~p", [ErrorReason]),
@@ -787,13 +791,13 @@ add_member_ex(LServer, ProID, BaseJID, List) ->
             {error, ?AFT_ERR_ALLREADY_FINISHED}
     end.
 
-add_job_ex(LServer, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part, PartLevel) ->
+add_job_ex(LServer, ProID, BaseJID, SelfJobID, ParentJobID, PartID, JobName) ->
     case project_status(LServer, ProID) of
         running ->
             case odbc_organization:get_job_info(LServer, ParentJobID) of
                 {ok, []} ->
                     {error, ?AFT_ERR_PARENT_NOT_EXIST};
-                {ok, [{_, _, _, _, _, ParentPart, ParentPartLevel, _}]} ->
+                {ok, #node{department=ParentPart, department_level = ParentPartLevel, department_id= ParentPartID}} ->
                     Valid = case is_admin(LServer, BaseJID, ProID) of
                                 false ->
                                     if
@@ -806,8 +810,9 @@ add_job_ex(LServer, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part, PartL
                         false -> {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH};
                         true ->
                             if
-                                ParentPart =:= Part ->
-                                    case odbc_organization:add_node(LServer, ParentJobID, #node{name = JobName, department = Part, department_level = ParentPartLevel}) of
+                                ParentPartID =:= PartID ->
+                                    case odbc_organization:add_node(LServer, ParentJobID,
+                                        #node{name = JobName, department = ParentPart, department_level = ParentPartLevel, department_id = ParentPartID}) of
                                         {ok, JobTag, _Node} ->
                                             {ok, JobTag};
                                         {error, ErrorReason} ->
@@ -815,11 +820,12 @@ add_job_ex(LServer, ProID, BaseJID, SelfJobID, ParentJobID, JobName, Part, PartL
                                             {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end;
                                 true ->
-                                    case odbc_organization:get_department_member_parent(LServer, ProID, Part, PartLevel) of
+                                    case odbc_organization:get_department_member_parent(LServer, ProID, PartID, ParentPartLevel) of
                                         {ok, ParentJobList} ->
                                             case lists:member({ParentJobID}, ParentJobList) of
                                                 true ->
-                                                    case odbc_organization:add_node(LServer, ParentJobID, #node{name = JobName, department = Part, department_level = PartLevel}) of
+                                                    case odbc_organization:add_node(LServer, ParentJobID,
+                                                        #node{name = JobName, department = ParentPart, department_level = ParentPartLevel, department_id = ParentPartID}) of
                                                         {ok, JobTag, _Node} ->
                                                             {ok, JobTag};
                                                         {error, ErrorReason} ->
@@ -905,6 +911,7 @@ delete_member_ex(LServer, ProID, BaseJID, SelfJob, JID, Job) ->
                                 ok ->
                                     case odbc_organization:delete_employee(LServer, ProID, JID, Job) of
                                         {ok, MemberTag} ->
+                                            ejabberd_hooks:run(delete_member, LServer, [LServer, JID, ProID, Job]),
                                             {ok, MemberTag};
                                         {error, _Reason} ->
                                             {error, ?ERR_INTERNAL_SERVER_ERROR}
@@ -970,35 +977,6 @@ change_admin_ex(LServer, Project, Admin, BaseJID) ->
                             end;
                         true ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
-%%                             case odbc_organization:get_job(LServer, BaseJID, Project) of
-%%                                 {ok, Job} ->
-%%                                     {ok, OldAdminJob} = odbc_organization:get_job(LServer, OldAdmin, Project),
-%%                                     if
-%%                                         Job =:= OldAdminJob ->
-%%                                             case odbc_organization:change_admin(LServer, Project, Admin) of
-%%                                                 ok -> ok;
-%%                                                 _ -> {error, ?ERR_INTERNAL_SERVER_ERROR}
-%%                                             end;
-%%                                         true ->
-%%                                             case odbc_organization:get_parent_jids(LServer, BaseJID, Project) of
-%%                                                 {error, _} ->
-%%                                                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH};
-%%                                                 {ok, Parents} ->
-%%                                                     ParentJIDs = [P_JID || #employee{jid = P_JID} <- Parents],
-%%                                                     case lists:member(BaseJID, ParentJIDs) of
-%%                                                         true ->
-%%                                                             case odbc_organization:change_admin(LServer, Project, Admin) of
-%%                                                                 ok -> ok;
-%%                                                                 _ -> {error, ?ERR_INTERNAL_SERVER_ERROR}
-%%                                                             end;
-%%                                                         false ->
-%%                                                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
-%%                                                     end
-%%                                             end
-%%                                     end;
-%%                                 _ ->
-%%                                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
-%%                             end
                     end
             end
     end.
