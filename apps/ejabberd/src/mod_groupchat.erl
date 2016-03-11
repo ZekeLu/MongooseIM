@@ -556,10 +556,10 @@ make_error_reply(#iq{sub_el = SubEl} = IQ, Code) ->
     IQ#iq{type = error, sub_el = [SubEl, Err]}.
 
 project_status(LServer, ProID) ->
-    case odbc_organization:project_status(LServer, ProID) of
-        {ok, [{<<"1">>}]} ->
+    case odbc_organization:get_project(LServer, ProID) of
+        {ok, #project{status = <<"1">>}} ->
             running;
-        {ok, [{<<"0">>}]} ->
+        {ok, #project{status = <<"0">>}} ->
             finished;
         _ ->
             not_exist

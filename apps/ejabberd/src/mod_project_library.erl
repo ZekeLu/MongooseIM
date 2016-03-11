@@ -127,9 +127,6 @@ delete_member(LServer, DeleteJID, Project, Job) ->
                 "' and o.id=ou.organization"]) of
                 {selected, _, [{<<"0">>}]} ->
                     {updated, _} = ejabberd_odbc:sql_query(LServer, ["update folder set owner='admin' where project='", Project, "' and department_id='", Department_ID, "'"] );
-%%                     {selected, _, [{AdminJob}]} = ejabberd_odbc:sql_query(LServer, ["select o.id from organization as o, organization_user as ou, project as p where p.id='",
-%%                         Project, "' and o.project='", Project, "' and o.id=ou.organization and ou.jid=p.admin;"]),
-%%                     {updated, _} = ejabberd_odbc:sql_query(LServer, ["update folder set owner='", AdminJob, "' where project='", Project, "' and department_id='", Department_ID, "'"] );
                 _ ->
                     ok
             end;
@@ -564,19 +561,19 @@ search_file(_, _, IQ) ->
 %% ------------------------------------------------------------------
 
 list_folder_ex(LServer, BareJID, Folder, Project) ->
-    case odbc_organization:is_member_admin(LServer, Project, BareJID) of
-        {true, IsAdmin, JobID} ->
+    case check_status(LServer, Project, BareJID) of
+        {is_member, _, JobID, AdminJID} ->
             Querys = if
                          (Folder =:= <<>>) or (Folder =:= <<"-1">>) ->
-                             folder_sql_query(LServer, ?TYPE_ROOT, BareJID, JobID, Folder, Project, false, IsAdmin);
+                             folder_sql_query(LServer, ?TYPE_ROOT, BareJID, JobID, Folder, Project, false, BareJID =:= AdminJID);
                          (Folder =:= <<"-2">>) ->
-                            folder_sql_query(LServer, ?TYPE_SHARE, BareJID, JobID, Folder, Project, false, IsAdmin);
+                            folder_sql_query(LServer, ?TYPE_SHARE, BareJID, JobID, Folder, Project, false, BareJID =:= AdminJID);
                          (Folder =:= <<"-3">>) ->
-                             folder_sql_query(LServer, ?TYPE_ADMIN_MANAGER, BareJID, JobID, Folder, Project, false, IsAdmin);
+                             folder_sql_query(LServer, ?TYPE_ADMIN_MANAGER, BareJID, JobID, Folder, Project, false, BareJID =:= AdminJID);
                          true ->
                              case query_folder_info('type-owner', LServer, ["and id='", Folder, "';"]) of
                                  [{Type, Owner}] ->
-                                     folder_sql_query(LServer, Type, BareJID, JobID, Folder, Project, Owner =:= BareJID, IsAdmin);
+                                     folder_sql_query(LServer, Type, BareJID, JobID, Folder, Project, Owner =:= BareJID, BareJID =:= AdminJID);
                                  _ ->
                                      {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
                              end
@@ -615,7 +612,7 @@ list_folder_ex(LServer, BareJID, Folder, Project) ->
 
 add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {running, is_member, Job, AdminJID} ->
+        {is_member, running, Job, AdminJID} ->
             SBareJID = escape(BareJID),
             case query_folder_info('id-name-type-owner-department_id', LServer, ["and project='", Project, "' and id='", Parent, "';"]) of
                 [{ParentID, ParentName, ParentType, ParentOwner, ParentPartID}] ->
@@ -653,7 +650,7 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
                 not_exist ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
-        {finished, is_member, _, _} ->
+        {is_member,finished, _, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -661,7 +658,7 @@ add_folder_ex(LServer, BareJID, Parent, Name, Project) ->
 
 add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project, FileID) ->
     case check_status(LServer, Project, BareJID) of
-        {running, is_member, Job, AdminJID} ->
+        {is_member, running, Job, AdminJID} ->
             case check_add_file_uuid_valid(LServer, BareJID, UUID, FileID) of
                 invalid -> {error, ?AFT_ERR_INVALID_FILE_ID};
                 {valid, Type, NewUUID} ->
@@ -718,7 +715,7 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project, FileID) ->
                             {error, ?AFT_ERR_ALLREADY_FINISHED}
                     end
             end;
-        {finished, is_member, _, _} ->
+        {is_member, finished, _, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -726,7 +723,7 @@ add_file_ex(LServer, BareJID, Parent, Name, UUID, Size, Project, FileID) ->
 
 delete_folder_ex(LServer, BareJID, ID, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {running, is_member, Job, AdminJID} ->
+        {is_member, running, Job, AdminJID} ->
             case query_self_parent_info('type-name#id-name-type-owner', LServer, ID, <<"folder">>) of
                 [{SelfType, SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
                     case delete_folder_privilige(LServer, Project, BareJID, Job, AdminJID, ParentID, ParentType, ParentOwner) of
@@ -771,7 +768,7 @@ delete_folder_ex(LServer, BareJID, ID, Project) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
-        {finished, is_member, _, _} ->
+        {is_member, finished, _, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -779,7 +776,7 @@ delete_folder_ex(LServer, BareJID, ID, Project) ->
 
 delete_file_ex(LServer, BareJID, ID, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {running, is_member, Job, AdminJID} ->
+        {is_member, running, Job, AdminJID} ->
             case query_self_parent_info('name#id-name-type-owner', LServer, ID, <<"file">>) of
                 [{SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
                     case delete_file_privilige(LServer, Project, BareJID, Job, AdminJID, ParentID, ParentType, ParentOwner) of
@@ -809,7 +806,7 @@ delete_file_ex(LServer, BareJID, ID, Project) ->
                     _ ->
                         {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
-        {finished, is_member, _, _} ->
+        {is_member, finished, _, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -817,7 +814,7 @@ delete_file_ex(LServer, BareJID, ID, Project) ->
 
 rename_file_or_folder_ex(LServer, BareJID, ID, Name, Project, Type) ->
     case check_status(LServer, Project, BareJID) of
-        {running, is_member, Job, AdminJID} ->
+        {is_member, running, Job, AdminJID} ->
             case query_self_parent_info('creator-name#id-name-type-owner', LServer, ID, Type) of
                 [{SelfUpdater, SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
                     IsAllowed = case Type  of
@@ -876,7 +873,7 @@ rename_file_or_folder_ex(LServer, BareJID, ID, Name, Project, Type) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
-        {finished, is_member, _, _} ->
+        {is_member, finished, _, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -884,7 +881,7 @@ rename_file_or_folder_ex(LServer, BareJID, ID, Name, Project, Type) ->
 
 share_ex(LServer, BareJID, ID, Users, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {_, is_member, Job, AdminJID} ->
+        {is_member, _, Job, AdminJID} ->
             case query_self_parent_info('type#id-type-owner', LServer, ID, <<"folder">>) of
                 [{SelfType, ParentID, ParentType, ParentOwner}] ->
                     case share_privilige(LServer, Project, BareJID, Job, AdminJID, ParentID, ParentType, ParentOwner, SelfType) of
@@ -961,7 +958,7 @@ share_ex(LServer, BareJID, ID, Users, Project) ->
 
 move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
     case check_status(LServer, Project, BareJID) of
-        {running, is_member, Job, AdminJID} ->
+        {is_member, running, Job, AdminJID} ->
             case query_self_parent_info('name#id-name-type-owner', LServer, ID, Type) of
                 [{SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
                     case query_folder_info('id-name-type-owner', LServer, ["and id='", DestFolder, "';"]) of
@@ -970,18 +967,32 @@ move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
                                 ParentType, ParentOwner, Type, 0, DestFolder, DestType, DestOwner) of
                                 allowed ->
                                     %% TOFIX: shoule to update folder(and inner file) or file creator=BareJID ???
-                                    Query = if
-                                                    Type =:= <<"folder">> ->
+                                    F = fun() ->
+                                        case Type of
+                                            <<"file">> ->
+                                                case ejabberd_odbc:sql_query_t(["select count(id) from file where folder='", DestFolder, "' and name='", escape(SelfName), "' and status='1';"]) of
+                                                    {selected,_,[{<<"0">>}]} ->
+                                                        {updated, 1} = ejabberd_odbc:sql_query_t(["update file set folder='", DestFolder, "' where id='", ID, "';"]),
+                                                        ok;
+                                                    _ ->
+                                                        file_exist
+                                                end;
+                                            <<"folder">> ->
+                                                case ejabberd_odbc:sql_query_t(["select count(id) from folder where parent='", DestFolder, "' and name='", escape(SelfName), "' and status='1';"]) of
+                                                    {selected,_,[{<<"0">>}]} ->
                                                         TypeAfterMoved = case DestType of
                                                                              ?TYPE_PUBLIC -> ?TYPE_PUB_SUB;
                                                                              ?TYPE_DEPARTMENT -> ?TYPE_DEP_SUB
                                                                          end,
-                                                        ["update folder set parent='", DestFolder, "', owner='", DestOwner, "', type='", TypeAfterMoved, "' where id='", ID, "';"];
-                                                    true ->
-                                                        ["update file set folder='", DestFolder, "' where id='", ID, "';"]
-                                                end,
-                                    case ejabberd_odbc:sql_query(LServer, Query) of
-                                        {updated, 1} ->
+                                                        {updated, 1} = ejabberd_odbc:sql_query_t(["update folder set parent='", DestFolder, "', owner='", DestOwner, "', type='", TypeAfterMoved, "' where id='", ID, "';"]),
+                                                        ok;
+                                                    _ ->
+                                                        folder_exist
+                                                end
+                                        end
+                                    end,
+                                    case ejabberd_odbc:sql_transaction(LServer, F) of
+                                        {atomic, ok} ->
                                             Text = if
                                                        (ParentType =:= ?TYPE_PUBLIC) ->
                                                            <<ParentName/binary, ">", SelfName/binary>>;
@@ -1014,6 +1025,10 @@ move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
                                                     nothing_to_do
                                             end,
                                             ok;
+                                        {atomic, file_exist} ->
+                                            {error, ?AFT_ERR_FILE_EXIST};
+                                        {atomic, folder_exist} ->
+                                            {error, ?AFT_ERR_FOLDER_EXIST};
                                         _ ->
                                             {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end;
@@ -1026,7 +1041,7 @@ move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
-        {finished, is_member, _, _} ->
+        {is_member, finished, _, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -1034,7 +1049,7 @@ move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
 
 add_version_ex(LServer, BareJID, ID, UUID, Size, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {running, is_member, Job, AdminJID} ->
+        {is_member, running, Job, AdminJID} ->
             case query_self_parent_info('id-name-version_count#id-type-name-owner', LServer, ID, <<"file">>) of
                 [{_SelfID, SelfName, VersionCount, ParentID, ParentType, ParentName, ParentOwner}] -> %% _SelfID, just only check file is exist or not, can check id is valied or not.
                     case add_version_privilige(LServer, Project, BareJID, Job, AdminJID,  ParentID, ParentType, ParentOwner) of
@@ -1071,7 +1086,7 @@ add_version_ex(LServer, BareJID, ID, UUID, Size, Project) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
-        {finished, is_member, _, _} ->
+        {is_member, finished, _, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -1079,7 +1094,7 @@ add_version_ex(LServer, BareJID, ID, UUID, Size, Project) ->
 
 list_share_users_ex(LServer, BareJID, ID, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {_, is_member, Job, AdminJID} ->
+        {is_member, _, Job, AdminJID} ->
             case query_folder_info('id-type-owner', LServer, ["and id='", ID, "';"]) of
                 [{_ID, Type, Owner}] ->
                     case list_share_users_privilige(LServer, Project, BareJID, Job, AdminJID, 0, 0, 0, ID, Type, Owner) of
@@ -1104,13 +1119,12 @@ list_share_users_ex(LServer, BareJID, ID, Project) ->
 
 list_version_ex(LServer, BareJID, ID, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {_, is_member, Job, AdminJID} ->
+        {is_member, _, Job, AdminJID} ->
             case query_self_parent_info('id-uuid-size_byte-creator-created_at#id-type-owner', LServer,  ID, <<"file">>) of
                 [{SelfID, SelfUUID, SelfSize, SelfCreator, SelfTime, ParentID, ParentType, ParentOwner}] ->
                     case list_version_privilige(LServer, Project, BareJID, Job, AdminJID, ParentID, ParentType, ParentOwner) of
                         allowed ->
                             case ejabberd_odbc:sql_query(LServer, ["select id, file, uuid, size_byte, creator, created_at from file_version where file='", ID, "';"]) of
-                               %%{selected, _, {R_ID, R_File, R_UUID, R_Size, R_Updater, R_Time}} ->
                                 {selected, _, R} ->
                                     R1 = [{<<"-1">>, SelfID, SelfUUID, SelfSize, SelfCreator, SelfTime} | R],
                                     ResultJson = lists:foldl(fun({E1,E2,E3,E4,E5,E6}, AccIn) ->
@@ -1139,7 +1153,7 @@ list_version_ex(LServer, BareJID, ID, Project) ->
 
 download_ex(LServer, BareJID, ID, UUID, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {_, is_member, Job, AdminJID} ->
+        {is_member, _, Job, AdminJID} ->
             case query_self_parent_info('uuid-version_count#id-type-owner', LServer, ID, <<"file">>) of
                 [{SelfUUID, Count, ParentID, ParentType, ParentOwner}] ->
                     Valid = if
@@ -1194,7 +1208,7 @@ download_ex(LServer, BareJID, ID, UUID, Project) ->
 
 get_log_ex(LServer, BareJID, Before, After, Count, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {_, is_member, _, _} ->
+        {is_member, _, _, _} ->
             LogList =
             if
                 Before /= false ->
@@ -1216,7 +1230,7 @@ get_log_ex(LServer, BareJID, Before, After, Count, Project) ->
 
 get_trash_ex(LServer, BareJID, Before, After, Count, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {_, is_member, Job, AdminJID} ->
+        {is_member, _, Job, AdminJID} ->
             AdminClause = if BareJID =:= AdminJID -> <<"1">>; true -> <<"0">> end,
             SelectPart = ["select file.id, file.name, file.location, file.deleted_at, folder.owner from file, folder ",
                 "where file.status='0' and folder.project='", Project ,"'  and file.folder=folder.id and ( folder.owner='", escape(BareJID),
@@ -1238,7 +1252,7 @@ get_trash_ex(LServer, BareJID, Before, After, Count, Project) ->
 
 clear_trash_ex(LServer, BareJID, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {_, is_member, Job, AdminJID} ->
+        {is_member, _, Job, AdminJID} ->
             SBareJID = escape(BareJID),
             AdminClause = if BareJID =:= AdminJID -> <<"1">>; true -> <<"0">> end,
             DeleteVersionFile= ["delete file_version.* from file_version, file, folder ",
@@ -1265,7 +1279,7 @@ clear_trash_ex(LServer, BareJID, Project) ->
 
 recover_file_ex(LServer, BareJID, ID, Name, DestFolder, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {_, is_member, Job, AdminJID} ->
+        {is_member, _, Job, AdminJID} ->
             case query_parent_info('id-type-name-owner-2', LServer, ID, <<"file">>) of
                 [{ParentID, ParentType, ParentName, ParentOwner}] ->
                     case query_folder_info('type-owner', LServer, ["and id='", DestFolder, "';"]) of
@@ -1308,7 +1322,7 @@ recover_file_ex(LServer, BareJID, ID, Name, DestFolder, Project) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
-        {finished, is_member, _} ->
+        {is_member, finished, _, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -1316,7 +1330,7 @@ recover_file_ex(LServer, BareJID, ID, Name, DestFolder, Project) ->
 
 get_normal_uuid_ex(LServer, BareJID, IDList, Project) ->
     case check_status(LServer, Project, BareJID) of
-        {_, is_member, _, _} ->
+        {is_member, _, _, _} ->
             SBareJID = escape(BareJID),
             List = parse_json_list([<<"id">>, <<"uuid">>], IDList, []),
             {ValidList, InvalidList} = check_id_uuid_valid(LServer, Project, List, BareJID),
@@ -1456,7 +1470,7 @@ check_id_uuid_valid(LServer, Project, List, _BareJID) ->
 
 search_file_ex(LServer, BareJID, Project, Folder, Name, Page, Count) ->
     case check_status(LServer, Project, BareJID) of
-        {_, is_member, Job, AdminJID} ->
+        {is_member, _, Job, AdminJID} ->
             SBareJID = escape(BareJID),
             SName = escape(Name),
             StartLine = integer_to_binary((binary_to_integer(Page) - 1) * binary_to_integer(Count)),
@@ -1489,23 +1503,16 @@ search_file_ex(LServer, BareJID, Project, Folder, Name, Page, Count) ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
-%% return {project status, is project member, job id in project, admin jid}
 check_status(LServer, Project, JID) ->
-    Query = ["select p.status, count(ou.id), o.id, p.admin from organization_user as ou, organization as o, project as p where o.project='",
-        Project, "' and o.id=ou.organization and ou.jid='", escape(JID),  "' and p.id='", Project, "';"],
+    Query = ["select p.status, ou.organization, p.admin from organization_user as ou, organization as o, project as p ",
+        " where ou.organization=o.id and ou.jid='", escape(JID),  "' and o.project=p.id and p.id='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, _, [{<<"0">>, <<"0">>, _, _}]} ->
-            {finished, not_member, padding, padding};
-        {selected, _, [{<<"0">>, <<"1">>, JobID, AdminJID}]} ->
-            {finished, is_member, JobID, AdminJID};
-        {selected, _, [{<<"1">>, <<"0">>, _, _}]} ->
-            {running, not_member, padding, padding};
-        {selected, _, [{<<"1">>, <<"1">>, JobID, AdminJID}]} ->
-            {running, is_member, JobID, AdminJID};
-        {selected, _, [{null, _, _, _}]} ->
-            project_not_exists;
+        {selected, _, [{<<"0">>, JobID, AdminJID}]} ->
+            {is_member, finished, JobID, AdminJID};
+        {selected, _, [{<<"1">>, JobID, AdminJID}]} ->
+            {is_member, running, JobID, AdminJID};
         _ ->
-            error
+            not_member
     end.
 
 
@@ -1642,13 +1649,13 @@ move_privilige(LServer, Project, BareJID, Job, AdminJID, ParentID, ParentType, P
         (ParentID =:= DestFolder) -> not_allowed;
         true ->
             IsSrcDepartmentLeader = if
-                                        ParentType =:= ?TYPE_DEPARTMENT ->
+                                        (ParentType =:= ?TYPE_DEPARTMENT) or (ParentType =:= ?TYPE_DEP_SUB) ->
                                             is_department_folder_leader(LServer, Project, ParentID, Job, BareJID =:= AdminJID);
                                         true ->
                                             false
                                     end,
             IsDestDepartmentMemberOrLeader = if
-                                                 DestType =:= ?TYPE_DEPARTMENT ->
+                                                 (DestType =:= ?TYPE_DEPARTMENT) or (DestType =:= ?TYPE_DEP_SUB) ->
                                                      is_department_folder_member_or_leader(LServer, Project, DestFolder, Job, BareJID =:= AdminJID);
                                                  true ->
                                                      false
@@ -2188,11 +2195,12 @@ check_add_file_uuid_valid(LServer, JID, UUID, FileID) ->
                 false ->
                     {valid, <<"3">>, <<"">>};
                 _ ->
-                    case ejabberd_odbc:sql_query(LServer, ["select folder.project from file, folder, file_version where (folder.type <> '", ?TYPE_PER_PRIVATE,
-                        "') and (folder.id=file.folder) and (file.id='", FileID, "') and (file.uuid='", UUID,
+                    %% check from_project folder privilege ??? this only check JID is member of from_roject.
+                    case ejabberd_odbc:sql_query(LServer, ["select folder.project from file, folder, file_version where (folder.id=file.folder) ",
+                        " and (file.id='", FileID, "') and (file.uuid='", UUID,
                         "' or (file.version_count >'1' and file_version.file = file.id and file_version.uuid='", UUID, "')) limit 1;"]) of
                         {selected, _, [{FromProject}]} ->
-                            case odbc_organization:is_memeber(LServer, FromProject, JID) of
+                            case odbc_organization:is_member(LServer, FromProject, JID) of
                                 true ->
                                     {valid, <<"3">>, UUID};
                                 _ ->

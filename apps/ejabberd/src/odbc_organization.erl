@@ -2,88 +2,76 @@
 
 %% API
 -export([
-         get_all/2,
-         get_parents/2,
-         get_children/2,
-         delete_node/2,
-         update_node/3,
-         add_node/3,
-         node_exist/3,
-         get_all_nodes/2,
-         get_structure/2,
-         add_employees/4,
-         delete_employee/4,
-         add_employee/3,
-         remove_employee/3,
-         add_project/4,
-         finish_project/2,
-         list_project/3,
-         get_project/2,
-         set_photo/3,
-         get_photo/3,
-         project_status/2,
-         project_name/2,
-         get_link_project/2,
-         is_template/2,
-         is_project_exist/2,
-         is_project_name_exist/2,
-         get_admin/2,
-         change_admin/3,
-         get_all_jid/2,
-         get_parent_jids/3,
-         get_children_job/3,
-         %get_job/3,
-         is_memeber/3,
-         is_member2/4,
-         is_member_admin/3,
-         is_link_member/4,
-         search_project/2,
-         subscribe/3,
-         subscribed/3,
-         is_subscribe_exist/3,
-         unsubscribed/3,
-         unsubscribe/3,
-         get_job_info/2,
-         get_department_member_parent/4,
-         get_task_jid/3,
-         is_child/6,
-         is_child/4,
-         get_task/5,
-         delete_task/3
-        ]).
+    add_node/3,
+    update_node/3,
+    delete_node/2,
+    node_exist/2,
+    get_node/2,
+    get_child_nodes/3,
+
+    add_project/4,
+    finish_project/2,
+    add_employees/4,
+    delete_employee/4,
+    get_project/2,
+    get_template/2,
+    search_project/2,
+    list_project/3,
+    get_project_nodes/3,
+    get_all/3,
+    set_photo/3,
+    change_admin/3,
+    is_project_name_exist/2,
+    is_member/3,
+    is_member/4,
+
+    list_link_project/2,
+    is_link_member/4,
+    subscribe/3,
+    subscribed/3,
+    unsubscribed/3,
+    unsubscribe/3,
+    is_subscribe_exist/3,
+
+    get_task_jid/3,
+    is_child/6,
+    is_child/4,
+    get_task/5,
+    delete_task/3]).
 
 -include("jlib.hrl").
 -include("organization.hrl").
 
 -type pro_type() :: binary() | integer().
 
--spec get_all(binary(), integer()) -> {ok, list()} | {error, _}.
-get_all(LServer, Project) ->
-    Query = ["select ou.jid, o.id, o.name, o.department from organization as o join organization_user as ou ",
-             "on o.id = ou.organization where o.project = ", Project, " ;"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"jid">>, <<"id">>, <<"name">>, <<"department">>], Rs} ->
-            %%{ok, employees_to_records(Rs)};
-            {ok, Rs};
-        Reason ->
-            {error, Reason}
-    end.
+%% Columns: ["jid", "id", "name", ...]
+-spec get_all(binary(), integer(), list()) -> {ok, list()} | {error, _}.
+get_all(LServer, Project, Columns) ->
+    HasJID = lists:member("jid", Columns),
 
--spec get_all_jid(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
-get_all_jid(LServer, Project) ->
-    Query = ["select jid from organization_user as ou join organization as o on o.project='", Project, "' and o.id=ou.organization;"],
+    Query = if
+                HasJID =:= true ->
+                    QueryColumns = string:sub_string(
+                        lists:flatten(lists:map(fun(E) -> if E =:= "jid" -> ",ou.jid"; true -> [",o."|E ] end end, Columns)), 2),
+                    ["select ", QueryColumns, " from organization_user as ou, organization as o where o.id=ou.organization ",
+                        " and o.project='", Project, "';"];
+                HasJID =:= false ->
+                    QueryColumns = string:sub_string(lists:flatten(lists:map(fun(E) -> [","|E]  end, Columns)), 2),
+                    ["select ", QueryColumns, " from organization where project='", Project, "';"]
+            end,
+
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"jid">>], Rs} ->
+        {selected, _, Rs} ->
             {ok, Rs};
         Reason ->
             {error, Reason}
     end.
 
 -spec is_link_member(binary(), odbc_organization:pro_type(), binary(), odbc_organization:pro_type()) -> true | false.
-is_link_member(LServer, ProjectSelf, Jid, ProjectTarget) ->
+is_link_member(LServer, ProjectSelf, JID, ProjectTarget) ->
     Query = ["select count(id1) from project_link as pl join organization as o on ((o.project=pl.id1 and pl.id2='", ProjectTarget,
         "') or (o.project=pl.id2 and pl.id1='", ProjectTarget, "')) and o.project='", ProjectSelf, "' join organization_user as ou ",
-        "on o.id = ou.organization and ou.jid='", escape(Jid), "';"],
+        "on o.id = ou.organization and ou.jid='", escape(JID), "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected,[<<"count(id1)">>],[{<<"2">>}]} ->
             true;
@@ -91,34 +79,10 @@ is_link_member(LServer, ProjectSelf, Jid, ProjectTarget) ->
             false
     end.
 
--spec get_parent_jids(binary(), binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
-get_parent_jids(LServer, Jid, Project)->
-    Query = ["select o.lft, o.rgt from organization as o join organization_user as ou on o.id = ou.organization ",
-        "where ou.jid='", escape(Jid), "' and o.project='", Project, "';"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"lft">>, <<"rgt">>], []} ->
-            {error, not_exists};
-        {selected, [<<"lft">>, <<"rgt">>], [{Left, Right}]} ->
-            get_parents(LServer, #node{lft=Left, rgt=Right, project=Project});
-        Reason ->
-            {error, Reason}
-    end.
-
--spec get_parents(binary(), #node{}) -> {ok, _} | {error, _}.
-get_parents(LServer, #node{lft = Left, rgt = Right, project = Project}) ->
-    Query = ["select ou.jid, o.id, o.name from organization as o join organization_user as ou ",
-             "on o.id = ou.organization where o.lft < ", Left, " and o.rgt > ",
-             Right, " and o.project = ", Project, ";"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"jid">>, <<"id">>, <<"name">>], Rs} ->
-            {ok, employees_to_records(Rs)};
-        Reason ->
-            {error, Reason}
-    end.
-
--spec get_structure(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
-get_structure(LServer, Project) ->
-    Query = ["select id, name, lft, rgt, department, department_level, department_id from organization where project='", Project, "';"],
+-spec get_project_nodes(binary(), odbc_organization:pro_type(), list()) -> {ok, list()} | {error, _}.
+get_project_nodes(LServer, Project, Columns) ->
+    QueryColumns = string:sub_string(lists:flatten(lists:map(fun(E) -> [","|E]  end, Columns)), 2),
+    Query = ["select ", QueryColumns, " from organization where project='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, Rs } ->
             {ok, Rs};
@@ -126,134 +90,64 @@ get_structure(LServer, Project) ->
             {error, Reason}
     end.
 
--spec get_all_nodes(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
-get_all_nodes(LServer, Project) ->
-    Query = ["select id, name, department, department_level, department_id from organization where project = '", Project, "';"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, _, Rs } ->
-            {ok, Rs};
-        Reason ->
-            {error, Reason}
-    end.
-
--spec get_link_project(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
-get_link_project(LServer, Project) ->
-    Query = ["select pl1.id2, p.name, p.photo, p.job_tag, p.member_tag from project_link as pl1 join project_link as pl2 ",
-            "on pl2.id2='", Project, "' and pl2.id1=pl1.id2 join project as p on pl1.id2 = p.id where pl1.id1='", Project, "';"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"id2">>, <<"name">>, <<"photo">>, <<"job_tag">>, <<"member_tag">>], Rs } ->
-            {ok, Rs};
-        Reason ->
-            {error, Reason}
-    end.
-
--spec is_memeber(binary(), odbc_organization:pro_type(), binary()) -> true | false.
-is_memeber(LServer, Project, Jid) ->
-    Query = ["select count(ou.id) from organization_user as ou, organization as o where o.id=ou.organization and o.project='",
-        Project, "' and ou.jid='", escape(Jid), "';"],
+-spec is_member(binary(), odbc_organization:pro_type(), binary()) -> true | false.
+is_member(LServer, Project, JID) ->
+    Query = ["select count(ou.id) from organization_user as ou join organization as o on ou.organization = o.id and o.project='",
+        Project, "' where ou.jid='", escape(JID), "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, [{<<"0">>}]} ->
-            Query1 = ["select count(id) from project where id ='", Project, "' and admin ='", escape(Jid), "';"],
-            case ejabberd_odbc:sql_query(LServer, Query1) of
-                {selected, _, [{<<"1">>}]} ->
-                    true;
-                _ ->
-                    false
-            end;
+            false;
         {selected, _, [{<<"1">>}]} ->
             true;
         _ ->
             false
     end.
 
--spec is_member2(binary(), binary(), binary(), binary()) -> true | false.
-is_member2(LServer, Project, JobID, JID) ->
-    Query = ["select count(o.id) from organization_user as ou, organization as o where o.id=ou.organization ",
-        "' and ou.organization='", JobID, " and ou.jid='", escape(JID), "' and o.project='", Project, "';"],
+-spec is_member(binary(), binary(), binary(), binary()) -> true | false.
+is_member(LServer, Project, JID, JobID) ->
+    Query = ["select count(ou.id) from organization_user as ou join organization as o on ou.organization =o.id ",
+        " and ou.jid='", escape(JID), "' and o.id='", JobID, "' and o.project='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"count(o.id)">>], [{<<"1">>}]} ->
+        {selected, _, [{<<"1">>}]} ->
             true;
         _ ->
             false
     end.
 
--spec is_member_admin(binary(), binary(), binary()) -> {true, true, _} | {true, false, _} | {false, false}.
-is_member_admin(LServer, Project, Jid) ->
-    Q1 = ["select count(ou.id), o.id from organization_user as ou, organization as o where o.project='",
-        Project, "' and o.id=ou.organization and ou.jid='", escape(Jid), "';"],
-    Q2 = ["select count(id) from project where id ='", Project, "' and admin ='", escape(Jid), "';"],
-    case ejabberd_odbc:sql_query(LServer, Q1) of
-        {selected, _, [{<<"0">>, _}]} ->
-            {false, false};
-        {selected, _, [{<<"1">>, JobID}]} ->
-            case ejabberd_odbc:sql_query(LServer, Q2) of
-                {selected, _, [{<<"1">>}]} ->
-                    {true, true, JobID};
-                _ ->
-                    {true, false, JobID}
-            end;
-        _ ->
-            {false, false}
-    end.
-
-
-%% get a random member in department, then get it all parent job id.
--spec get_department_member_parent(binary(), odbc_organization:pro_type(), binary(), binary()) -> {ok, list()} | {error, _}.
-get_department_member_parent(LServer, Project, DepartmentID, DepartmentLevel) ->
-    Query = ["select o1.id from organization as o1 join (select lft, rgt, project from organization where project='", Project,
-        "' and department_id='", escape(DepartmentID), "' and department_level='", escape(DepartmentLevel),
-        "' limit 1) as o2 on o1.lft < o2.lft and o1.rgt > o2.rgt where o1.project='", Project, "';" ],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"id">>], Rs} ->
-            {ok, Rs};
-        Reason ->
-            {error, Reason}
-    end.
-
--spec get_job_info(binary(), binary()) -> {ok, #node{}} | {error, _}.
-get_job_info(LServer, Job) ->
-    Query = ["select id, name, lft, rgt, depth, department, department_level, department_id, project from organization where id ='", Job, "';" ],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, _, [{ID, Name, Left, Right, Depth, Department, DepartmentLevel, DepartmentID, Project}]} ->
-            {ok, #node{id=ID, name=Name, lft=Left, rgt = Right, depth = Depth,
-                department = Department, department_level = DepartmentID, department_id = DepartmentID}};
-        Reason ->
-            {error, Reason}
-    end.
-
-%% -spec get_job(binary(), binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
-%% get_job(LServer, Jid, Project) ->
-%%     Query = ["select o.id from organization as o, organization_user as ou where o.project='", Project,
-%%         "' and o.id=ou.organization and ou.jid='", escape(Jid), "';"]
-%%     %Query = ["select organization from organization_user where project ='", Project, "' and jid = '", Jid, "';"], src
+%% %% get a random member in department, then get it all parent job id.
+%% -spec get_department_member_parent(binary(), odbc_organization:pro_type(), binary(), binary()) -> {ok, list()} | {error, _}.
+%% get_department_member_parent(LServer, Project, DepartmentID, DepartmentLevel) ->
+%%     Query = ["select o1.id from organization as o1 join (select lft, rgt, project from organization where project='", Project,
+%%         "' and department_id='", escape(DepartmentID), "' and department_level='", escape(DepartmentLevel),
+%%         "' limit 1) as o2 on o1.lft < o2.lft and o1.rgt > o2.rgt where o1.project='", Project, "';" ],
 %%     case ejabberd_odbc:sql_query(LServer, Query) of
-%%         {selected, [<<"organization">>], Rs} ->
+%%         {selected, [<<"id">>], Rs} ->
 %%             {ok, Rs};
 %%         Reason ->
 %%             {error, Reason}
 %%     end.
 
--spec get_children_job(binary(), binary(), odbc_organization:pro_type()) -> {ok, _} | {error, _}.
-get_children_job(LServer, Id, Project) ->
-    Query = ["select o1.id, o1.name, o1.department, o1.department_level, o1.department_id from organization as o1 ",
-        " join organization as o2 on o1.lft>o2.lft and o1.rgt<o2.rgt and o2.id='", Id, "' where o1.project='", Project, "';"],
+-spec get_node(binary(), binary()) -> {ok, #node{}} | {error, _}.
+get_node(LServer, Job) ->
+    Query = ["select id, name, lft, rgt, depth, department, department_level, department_id, project from organization where id ='", Job, "';" ],
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        {selected, _, [{ID, Name, Left, Right, Depth, Department, DepartmentLevel, DepartmentID, Project}]} ->
+            {ok, #node{id=ID, name=Name, lft=Left, rgt = Right, depth = Depth,
+                department = Department, department_level = DepartmentLevel, department_id = DepartmentID}};
+        Reason ->
+            {error, Reason}
+    end.
+
+-spec get_child_nodes(binary(), #node{}, list()) -> {ok, _} | {error, _}.
+get_child_nodes(LServer, #node{id = ID, lft = undefined, project = Project}, Columns) ->
+    QueryColumns = string:sub_string(lists:flatten(lists:map(fun(E) -> [",o1."|E]  end, Columns)), 2),
+    Query = ["select ", QueryColumns, " from organization as o1 join organization as o2 ",
+        " on o1.lft>o2.lft and o1.rgt<o2.rgt and o2.id='", ID, "' where o1.project='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, []} ->
             {error, no_exists};
         {selected, _, Rs} ->
             {ok, Rs};
-        Reason ->
-            {error, Reason}
-    end.
-
--spec get_children(binary(), #node{}) -> {ok, _} | {error, _}.
-get_children(LServer, #node{lft = Left, rgt = Right, project = Project}) ->
-    Query = ["select ou.jid, o.id, o.name from organization as o left join organization_user as ou ",
-             "on o.id = ou.organization where o.lft > ", Left, " and o.rgt < ",
-             Right, " and project = ", Project, ";"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"jid">>, <<"id">>, <<"name">>], Rs} ->
-            {ok, employees_to_records(Rs)};
         Reason ->
             {error, Reason}
     end.
@@ -319,9 +213,9 @@ add_node(LServer, ParentId, #node{name = Name, department = Department, departme
             {error, Reason}
     end.
 
--spec node_exist(binary(), binary(), binary()) -> {ok, _} | {error, _}.
-node_exist(LServer, Project, Id) ->
-    Query = ["select id from organization where id ='", Id, "' and project='", Project, "';"],
+-spec node_exist(binary(), #node{}) -> {ok, _} | {error, _}.
+node_exist(LServer, #node{id = ID, project = Project}) ->
+    Query = ["select id from organization where id ='", ID, "' and project='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, [<<"id">>], []} ->
             {ok, false};
@@ -331,22 +225,20 @@ node_exist(LServer, Project, Id) ->
             {error, Reason}
     end.
 
--spec add_employees(binary(), binary(), binary(), list()) -> ok | {error, _}.
-add_employees(LServer, Project, _Adder, List) ->
+-spec add_employees(binary(), binary(), binary(), list()) -> {ok, _} | {error, _}.
+add_employees(LServer, Project, _BareJID, List) ->
     TimeString = now_random(),
     Init = <<"insert into organization_user(organization, jid) values">>,
     Temp = lists:foldl(fun(E, AccIn) ->
         {Id, Jid} = E,
         AccIn1 = if
-                     AccIn =:= Init ->
-                         Init;
-                     true ->
-                         <<AccIn/binary, ",">>
+                     AccIn =:= Init -> Init;
+                     true -> <<AccIn/binary, ",">>
                  end,
         <<AccIn1/binary, "(", Id/binary, ", '", Jid/binary, "')">>
     end,
-        Init,
-        List),
+    Init,
+    List),
     Query1 = <<Temp/binary, ";">>,
     Size = lists:flatlength(List),
     Query2 = ["update project set member_tag='", TimeString, "' where id='", Project, "';"],
@@ -367,50 +259,20 @@ add_employees(LServer, Project, _Adder, List) ->
             {error, Reason}
     end.
 
--spec delete_employee(binary(), odbc_organization:pro_type(), binary(), binary()) -> ok | {error, no_exist} | {error, _}.
-delete_employee(LServer, Project, Jid, Job) ->
+-spec delete_employee(binary(), odbc_organization:pro_type(), binary(), {binary(), binary()}) -> {ok, _} | {error, _}.
+delete_employee(LServer, Project, _BareJID, {JID, Job}) ->
     TimeString = now_random(),
-    Query1 = ["delete from organization_user where organization=", Job, " and jid='", Jid, "';"],
+    Query1 = ["delete from organization_user where organization=", Job, " and jid='", JID, "';"],
     Query2 = ["update project set member_tag='", TimeString, "' where id='", Project, "';"],
 
     F = fun() ->
-        case ejabberd_odbc:sql_query_t(Query1) of
-            {updated, 1} ->
-                ejabberd_odbc:sql_query_t(Query2),
-                ok;
-            {updated, 0} ->
-                not_exist;
-            Reason ->
-                Reason
-        end
+        {updated, 1} = ejabberd_odbc:sql_query_t(Query1),
+        {updated, 1} = ejabberd_odbc:sql_query_t(Query2),
+        ok
     end,
     case ejabberd_odbc:sql_transaction(LServer, F) of
         {atomic, ok} ->
             {ok, TimeString};
-        {atomic, not_exist} ->
-            {error, not_exist};
-        Reason ->
-            {error, Reason}
-    end.
-
--spec add_employee(binary(), integer(), binary()) -> ok | {error, _}.
-add_employee(LServer, NodeId, Jid) ->
-    Query = ["insert into organization_user(organization, jid) values(", NodeId, ",'", Jid, "');"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {updated, 1} ->
-            ok;
-        Reason ->
-            {error, Reason}
-    end.
-
--spec remove_employee(binary(), integer(), binary()) -> ok | {error, _}.
-remove_employee(LServer, NodeId, Jid) ->
-    Query = ["delete from organization where organization_user = ", NodeId, " and jid = '", Jid, "';"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {updated, 1} ->
-            ok;
-        {updated, 0} ->
-            {error, not_exists};
         Reason ->
             {error, Reason}
     end.
@@ -469,19 +331,8 @@ finish_project(LServer, Project) ->
             {error, Reason}
     end.
 
--spec get_project(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
-get_project(LServer, Project) ->
-    Query = ["select id, name, description, photo, status, admin, start_at, end_at, job_tag, member_tag, link_tag from project where id='", Project, "';"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"id">>, <<"name">>, <<"description">>, <<"photo">>, <<"status">>, <<"admin">>,
-                    <<"start_at">>, <<"end_at">>, <<"job_tag">>, <<"member_tag">>, <<"link_tag">>], Rs} ->
-            {ok, Rs};
-        Reason ->
-            {error, Reason}
-    end.
-
 -spec list_project(binary(), binary(), boolean()) -> {ok, list()} | {error, _}.
-list_project(LServer, Jid, IsTemplate) ->
+list_project(LServer, JID, IsTemplate) ->
     case IsTemplate of
         true ->
             case ejabberd_odbc:sql_query(LServer, ["select id, name, description, photo, job_tag from template;"]) of
@@ -492,7 +343,7 @@ list_project(LServer, Jid, IsTemplate) ->
             end;
         _ ->
             Query = ["select p.id, p.name, p.description, p.photo, p.status, p.admin, p.start_at, p.end_at, p.job_tag, p.member_tag, p.link_tag ",
-                "from project as p, organization_user as ou, organization as o where o.id=ou.organization and ou.jid='", escape(Jid),
+                "from project as p, organization_user as ou, organization as o where o.id=ou.organization and ou.jid='", escape(JID),
                 "' and p.id=o.project;"],
             case ejabberd_odbc:sql_query(LServer, Query) of
                 {selected, [<<"id">>, <<"name">>, <<"description">>, <<"photo">>, <<"status">>, <<"admin">>,
@@ -501,8 +352,17 @@ list_project(LServer, Jid, IsTemplate) ->
                 Reason ->
                     {error, Reason}
             end
-    %["select p.id, p.name, p.description, p.photo, p.status, p.admin, p.start_at, p.end_at, p.job_tag, p.member_tag, p.link_tag ",
-    %    "from project as p join organization_user as ou on p.id = ou.project and ou.jid='", escape(Jid), "';"]  src
+    end.
+
+-spec list_link_project(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
+list_link_project(LServer, Project) ->
+    Query = ["select pl1.id2, p.name, p.photo, p.job_tag, p.member_tag from project_link as pl1 join project_link as pl2 ",
+        "on pl2.id2='", Project, "' and pl2.id1=pl1.id2 join project as p on pl1.id2 = p.id where pl1.id1='", Project, "';"],
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        {selected, [<<"id2">>, <<"name">>, <<"photo">>, <<"job_tag">>, <<"member_tag">>], Rs } ->
+            {ok, Rs};
+        Reason ->
+            {error, Reason}
     end.
 
 
@@ -516,58 +376,29 @@ set_photo(LServer, ProID, Photo) ->
             {error, Reason}
     end.
 
--spec get_photo(binary(), odbc_organization:pro_type(), boolean()) -> {ok, list()} | {error, _}.
-get_photo(LServer, ProID, IsTemplate) ->
-    Query = case IsTemplate of
-                true ->
-                    ["select photo from template where id='", ProID, "';"];
-                _ ->
-                    ["select photo from project where id='", ProID, "';"]
-            end,
+-spec get_project(binary(), binary()) -> {ok, #project{}} | {error, _}.
+get_project(LServer, Project) ->
+    Query = ["select id, name, description, photo, status, admin, start_at, end_at, job_tag, member_tag, link_tag from project where id='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"photo">>], Rs} ->
-            {ok, Rs};
+        {selected, _, [{ID, Name, Description, Photo, Status, Admin, StartAt, EndAt, JobTag, MemberTag, LinkTag}]} ->
+            {ok, #project{id=ID, name=Name, description = Description, photo = Photo, status = Status, admin = Admin,
+            start_at = StartAt, end_at = EndAt, job_tag = JobTag, member_tag = MemberTag, link_tag = LinkTag}};
+        {selected, _, []} ->
+            {ok, #project{}};
         Reason ->
             {error, Reason}
     end.
 
--spec project_status(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
-project_status(LServer, Project) ->
-    Query = ["select status from project where id=", Project],
+-spec get_template(binary(), binary()) -> {ok, #project{}} | {error, _}.
+get_template(LServer, Template) ->
+    Query = ["select id, name, description, photo, job_tag from template where id='", Template, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"status">>], Rs} ->
-            {ok, Rs};
+        {selected, _, [{ID, Name, Description, Photo, JobTag}]} ->
+            {ok, #project{id=ID, name=Name, description = Description, photo = Photo, job_tag = JobTag}};
+        {selected, _, []} ->
+            {ok, #project{}};
         Reason ->
             {error, Reason}
-    end.
-
--spec project_name(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
-project_name(LServer, Project) ->
-    Query = ["select name from project where id=", Project],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"name">>], Rs} ->
-            {ok, Rs};
-        Reason ->
-            {error, Reason}
-    end.
-
--spec is_template(binary(), odbc_organization:pro_type()) -> true | false.
-is_template(LServer, Template) ->
-    case ejabberd_odbc:sql_query(LServer, ["select count(id) from template where id='", Template, "' limit 1"]) of
-        {selected, [<<"count(id)">>], [{<<"1">>}]} ->
-            true;
-        _ ->
-            false
-    end.
-
--spec is_project_exist(binary(), odbc_organization:pro_type()) -> true | false.
-is_project_exist(LServer, Project) ->
-    Query = ["select count(id) from project where id='", Project, "';"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"count(id)">>], [{<<"1">>}]} ->
-            true;
-        _ ->
-            false
     end.
 
 -spec is_project_name_exist(binary(), binary()) -> true | false.
@@ -659,17 +490,7 @@ is_subscribe_exist(LServer, ProSource, ProTarget) ->
 search_project(LServer, ProjectName) ->
     Query = ["select id, name from project where name like '%", ProjectName, "%';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"id">>, <<"name">>], Rs} ->
-            {ok, Rs};
-        Reason ->
-            {error, Reason}
-    end.
-
--spec get_admin(binary(), odbc_organization:pro_type()) -> {ok, list()} | {error, _}.
-get_admin(LServer, Project) ->
-    Query = ["select admin from project where id='", Project, "';"],
-    case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, [<<"admin">>], Rs} ->
+        {selected, _, Rs} ->
             {ok, Rs};
         Reason ->
             {error, Reason}
@@ -684,11 +505,8 @@ change_admin(LServer, Project, Admin) ->
             {error, Reason}
     end.
 
-get_task_jid(LServer, Project, JobID) ->
-%%     Query = ["select gu.jid from groupuser as gu join groupinfo as gi on gu.groupid=gi.groupid and gi.project='", Project,
-%%         "' and gi.type=2 and gi.status=1 where gu.jid in(select jid from organization_user as ou join organization as o ",
-%%         "on ou.organization=o.id and o.project='", Projrect, "' join organization as o2 on o.lft > o2.lft and o.rgt < o2.rgt ",
-%%         "and o2.id='", JobID, "') group by gu.jid"],
+%% get project jids who has task.
+get_task_jid(LServer, Project, _JobID) ->
     Query = ["select gu.jid from groupuser as gu join groupinfo as gi on gu.groupid=gi.groupid and gi.project='", Project,
         "' and gi.type=2 and gi.status=1 group by gu.jid"],
     case ejabberd_odbc:sql_query(LServer, Query) of
@@ -698,7 +516,7 @@ get_task_jid(LServer, Project, JobID) ->
             {error, Reason}
     end.
 
-%% check JID2 is child job of JID1 in Project.
+%% check (JID2, Jobs) is child job of (JID1, Job1) in Project.
 is_child(LServer, Project, JID1, Job1, JID2, Job2) ->
     Query = ["select count(ou1.id) from organization_user as ou1 join organization as o1 on ou1.organization=o1.id join ",
         "organization as o on o1.lft>o.lft and o1.rgt<o.rgt and o1.project='", Project, "' join organization_user as ou ",
@@ -713,8 +531,8 @@ is_child(LServer, Project, JID1, Job1, JID2, Job2) ->
 
 %% check Job2 is child job of Job1 in Project
 is_child(LServer, Project, Job1, Job2) ->
-    Query = ["select count(o.id) from organization as o, (select lft, rgt from organization where id='", Job1, "' and project='",
-        Project, "') ", "as o1 where o.id='", Job2, "' and o.project='", Project, "' and o.lft>o1.lft and o.rgt<o1.rgt;"],
+    Query = ["select count(o1.id) from organization as o1 join organization as o2 on o1.lft < o2.lft and o1.rgt > o2.rgt and o2.id='",
+        Job2, "' and o1.project=o2.project and o2.project='", Project,"' where o1.id='", Job1, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, [{<<"1">>}]} ->
             true;
@@ -781,10 +599,6 @@ sql_list(QueryList) ->
 -spec plus(binary(), integer()) -> binary().
 plus(I, P) ->
     integer_to_binary(binary_to_integer(I) + P).
-
--spec employees_to_records(list()) -> list().
-employees_to_records(Result) ->
-    [#employee{jid = Jid, organization_id = Id, organization_name = Name} || {Jid, Id, Name} <- Result].
 
 now_random() ->
     {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:universal_time(),

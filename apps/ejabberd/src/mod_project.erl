@@ -30,6 +30,8 @@ process_iq(From, To, #iq{xmlns = ?NS_AFT_PROJECT, sub_el = SubEl} = IQ) ->
             list_project(From, To, IQ, list_template);
         <<"search_project">> ->
             search_project(From, To, IQ);
+        <<"get_template">> ->
+            get_project(From, To, IQ, template);
         <<"get_project">> ->
             get_project(From, To, IQ, self);
         <<"get_link_project">> ->
@@ -102,20 +104,25 @@ change_task_owner(LServer, Project, JID, GroupID, NewOwner, NickName) ->
     end.
 
 
-get_project(From, _To, #iq{type = get, sub_el = SubEl} = IQ, Who) ->
+get_project(From, _To, #iq{type = get, sub_el = SubEl} = IQ, Type) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
-    {_, Project} = lists:keyfind(<<"project">>, 1, Data),
-    ProjectTarget =
-        case Who of
-            self -> false;
-            link ->
-                {_, Value} = lists:keyfind(<<"project_target">>, 1, Data),
-                Value
-        end,
 
-    case get_project_ex(S, BaseJID, Project, ProjectTarget) of
+    {Project, ProjectTarget} = case Type of
+                                   template ->
+                                       {_, Value} = lists:keyfind(<<"template">>, 1, Data),
+                                       {Value, false};
+                                   self ->
+                                       {_, Value} = lists:keyfind(<<"project">>, 1, Data),
+                                       {Value, false};
+                                   link ->
+                                       {_, Value1} = lists:keyfind(<<"project">>, 1, Data),
+                                       {_, Value2} = lists:keyfind(<<"project_target">>, 1, Data),
+                                       {Value1, Value2}
+                               end,
+
+    case get_project_ex(S, BareJID, {Project, ProjectTarget}, Type) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result} ->
@@ -127,7 +134,7 @@ get_project(_, _, IQ, _) ->
 
 get_structure(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     Project = case lists:keyfind(<<"project">>, 1, Data) of
                   false -> false;
@@ -146,7 +153,7 @@ get_structure(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
                               _ -> {Template, true}
                           end,
 
-    case get_structure_ex(S, BaseJID, ProID, ProjectTarget, IsTemplate) of
+    case get_structure_ex(S, BareJID, ProID, ProjectTarget, IsTemplate) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result} ->
@@ -158,13 +165,13 @@ get_structure(_, _, IQ) ->
 
 create(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, Name} = lists:keyfind(<<"name">>, 1, Data),
     {_, Template} = lists:keyfind(<<"template">>, 1, Data),
     {_, Job} = lists:keyfind(<<"job">>, 1, Data),
 
-    case create_ex(S, Name, BaseJID, Template, Job) of
+    case create_ex(S, Name, BareJID, Template, Job) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result} ->
@@ -176,15 +183,14 @@ create(_, _, IQ) ->
 
 finish(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, ProID} = lists:keyfind(<<"project">>, 1, Data),
-    %% TOFIX: need check task is finished???
-    case finish_ex(S, ProID, BaseJID) of
+    case finish_ex(S, ProID, BareJID) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, EndTime} ->
-            case odbc_organization:get_all_jid(S, ProID) of
+            case odbc_organization:get_all(S, ProID, ["jid"]) of
                 {ok, Result} ->
                     Content = <<"{\"end_time\":\"", EndTime/binary, "\"}">>,
                     push_message(ProID, S, Result, <<"finished">>, Content);
@@ -198,18 +204,18 @@ finish(_, _, IQ) ->
 
 set_photo(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, ProID} = lists:keyfind(<<"project">>, 1, Data),
     {_, Photo} = lists:keyfind(<<"photo">>, 1, Data),
 
-    case set_photo_ex(S, ProID, BaseJID, Photo) of
+    case set_photo_ex(S, ProID, BareJID, Photo) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         ok ->
             F = mochijson2:encoder([{utf8, true}]),
-            Content = iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"photo">>, list_to_binary(make_head_url(binary_to_list(Photo)))}]})),
-            {ok, Result} = odbc_organization:get_all_jid(S, ProID),
+            Content = iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"photo">>, photo_url(Photo)}]})),
+            {ok, Result} = odbc_organization:get_all(S, ProID, ["jid"]),
             push_message(ProID, S, Result, <<"set_photo">>, Content),
             IQ#iq{type = result}
     end;
@@ -240,9 +246,17 @@ get_photo(_, _, IQ) ->
 
 list_project(From, _To, #iq{type = get, sub_el = SubEl} = IQ, Type) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
+    JID = case catch mochijson2:decode(xml:get_tag_cdata(SubEl)) of
+                         {'EXIT', _} -> false;
+                         {struct, Data} ->
+                             case lists:keyfind(<<"jid">>, 1, Data) of
+                                 {_, Value} -> Value;
+                                 false -> false
+                            end
+                     end,
 
-    case list_project_ex(S, BaseJID, Type) of
+    case list_project_ex(S, BareJID, Type, JID) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result} ->
@@ -254,12 +268,12 @@ list_project(_, _, IQ, _Type) ->
 
 list_children_jobs(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, ProID} = lists:keyfind(<<"project">>, 1, Data),
     {_, Job} = lists:keyfind(<<"job">>, 1, Data),
 
-    case list_children_jobs_ex(S, BaseJID, ProID, Job) of
+    case list_children_jobs_ex(S, BareJID, ProID, Job) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result} ->
@@ -271,7 +285,7 @@ list_children_jobs(_, _, IQ) ->
 
 add_job(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, ProID} = lists:keyfind(<<"project">>, 1, Data),
     {_, SelfJobID} = lists:keyfind(<<"self_job_id">>, 1, Data),
@@ -279,11 +293,11 @@ add_job(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     {_, PartID} = lists:keyfind(<<"part_id">>, 1, Data),
     {_, JobName} = lists:keyfind(<<"job_name">>, 1, Data),
 
-    case add_job_ex(S, ProID, BaseJID, SelfJobID, ParentJobID, PartID, JobName) of
+    case add_job_ex(S, ProID, BareJID, SelfJobID, ParentJobID, PartID, JobName) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, JobTag} ->
-            {ok, AllMembers} = odbc_organization:get_all_jid(S, ProID),
+            {ok, AllMembers} = odbc_organization:get_all(S, ProID, ["jid"]),
             Content = <<"{\"job_tag\":\"", JobTag/binary, "\"}">>,
             push_message(ProID, S, AllMembers, <<"add_job">>, Content),
             IQ#iq{type = result}
@@ -293,7 +307,7 @@ add_job(_, _, IQ) ->
 
 add_member(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, ProID} = lists:keyfind(<<"project">>, 1, Data),
     {_, Members} = lists:keyfind(<<"member">>, 1, Data),
@@ -301,14 +315,14 @@ add_member(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     if
         length(Members) > 0 ->
             Ls = parse_json_list([<<"job_id">>, <<"jid">>], Members, []),
-            case add_member_ex(S, ProID, BaseJID, Ls) of
+            case add_member_ex(S, ProID, BareJID, Ls) of
                 {error, Error} ->
                     IQ#iq{type = error, sub_el = [SubEl, Error]};
                 {ok, MemberTag, ValidMembers} ->
                     Content1 = [{struct, [{<<"job_id">>, R1}, {<<"jid">>, R2}]} || {R1, R2} <- ValidMembers],
                     F = mochijson2:encoder([{utf8, true}]),
                     Content = iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"member_tag">>, MemberTag}, {<<"member">>, Content1}]})) ,
-                    {ok, AllMembers} = odbc_organization:get_all_jid(S, ProID),
+                    {ok, AllMembers} = odbc_organization:get_all(S, ProID, ["jid"]),
                     push_message(ProID, S, AllMembers, <<"add_member">>, Content),
                     IQ#iq{type = result}
             end;
@@ -320,17 +334,17 @@ add_member(_, _, IQ) ->
 
 delete_member(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, ProID} = lists:keyfind(<<"project">>, 1, Data),
     {_, SelfJob} = lists:keyfind(<<"self_job_id">>, 1, Data),
     {_, JID} = lists:keyfind(<<"jid">>, 1, Data),
     {_, Job} = lists:keyfind(<<"job">>, 1, Data),
-    case delete_member_ex(S, ProID, BaseJID, SelfJob, JID, Job) of
+    case delete_member_ex(S, ProID, BareJID, SelfJob, JID, Job) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, MemberTag} ->
-            {ok, Result} = odbc_organization:get_all_jid(S, ProID),
+            {ok, Result} = odbc_organization:get_all(S, ProID, ["jid"]),
             AllMembers = [{JID} | Result], %% include delete member.
             Content = <<"{\"project\":\"", ProID/binary,  "\", \"member_tag\":\"", MemberTag/binary,  "\", \"member\":[\"", JID/binary, "\"]}">>,
             push_message(ProID, S, AllMembers, <<"delete_member">>, Content),
@@ -341,7 +355,7 @@ delete_member(_, _, IQ) ->
 
 list_member(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
 
     {_, Project} = lists:keyfind(<<"project">>, 1, Data),
@@ -350,7 +364,7 @@ list_member(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
                         {_, Target} -> Target
                     end,
 
-    case list_member_ex(S, Project, BaseJID, ProjectTarget) of
+    case list_member_ex(S, Project, BareJID, ProjectTarget) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result} ->
@@ -362,11 +376,11 @@ list_member(_, _, IQ) ->
 
 list_link_project(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, Project} = lists:keyfind(<<"project">>, 1, Data),
 
-    case list_link_project_ex(S, Project, BaseJID) of
+    case list_link_project_ex(S, Project, BareJID) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result} ->
@@ -378,17 +392,17 @@ list_link_project(_, _, IQ) ->
 
 subscribe(From, _To, #iq{type = set, sub_el = SubEl} = IQ, Type) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, IDSelf} = lists:keyfind(<<"id_self">>, 1, Data),
     {_, IDTarget} = lists:keyfind(<<"id_target">>, 1, Data),
 
-    case subscribe_ex(S, BaseJID, IDSelf, IDTarget, Type) of
+    case subscribe_ex(S, BareJID, IDSelf, IDTarget, Type) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         ok ->
-            {ok, [{ProNameSelf}]} = odbc_organization:project_name(S, IDSelf),
-            {ok, [{ProNameTarget}]} = odbc_organization:project_name(S, IDTarget),
+            {ok, #project{name = ProNameSelf}} = odbc_organization:get_project(S, IDSelf),
+            {ok, #project{name = ProNameTarget}} = odbc_organization:get_project(S, IDTarget),
             Content = <<"{\"id_self\":\"", IDTarget/binary, "\", \"name_self\":\"", ProNameTarget/binary,
                         "\", \"id_target\":\"", IDSelf/binary, "\", \"name_target\":\"", ProNameSelf/binary, "\"}">>,
             case get_admin(S, IDTarget) of
@@ -399,10 +413,10 @@ subscribe(From, _To, #iq{type = set, sub_el = SubEl} = IQ, Type) ->
             end,
             IQ#iq{type = result};
         {ok, LinkTag} ->
-            {ok, [{ProNameSelf}]} = odbc_organization:project_name(S, IDSelf),
-            {ok, [{ProNameTarget}]} = odbc_organization:project_name(S, IDTarget),
-            {ok, IDSelf_Member} = odbc_organization:get_all_jid(S, IDSelf),
-            {ok, IDTarget_Member} = odbc_organization:get_all_jid(S, IDTarget),
+            {ok, #project{name = ProNameSelf}} = odbc_organization:get_project(S, IDSelf),
+            {ok, #project{name = ProNameTarget}} = odbc_organization:get_project(S, IDTarget),
+            {ok, IDSelf_Member} = odbc_organization:get_all(S, IDSelf, ["jid"]),
+            {ok, IDTarget_Member} = odbc_organization:get_all(S, IDTarget, ["jid"]),
             Content1 = <<"{\"id_self\":\"", IDSelf/binary, "\", \"name_self\":\"", ProNameSelf/binary, "\", \"link_tag\":\"", LinkTag/binary,
                          "\", \"id_target\":\"", IDTarget/binary, "\", \"name_target\":\"", ProNameTarget/binary, "\"}">>,
             Content2 = <<"{\"id_self\":\"", IDTarget/binary, "\", \"name\":\"", ProNameTarget/binary, "\", \"link_tag\":\"", LinkTag/binary,
@@ -445,12 +459,12 @@ is_project_name_exist(_, _, IQ) ->
 
 change_admin(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
-    BaseJID = <<U/binary, "@", S/binary>>,
+    BareJID = <<U/binary, "@", S/binary>>,
     {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
     {_, Project} = lists:keyfind(<<"project">>, 1, Data),
     {_, Admin} = lists:keyfind(<<"admin">>, 1, Data),
 
-    case change_admin_ex(S, Project, Admin, BaseJID) of
+    case change_admin_ex(S, Project, Admin, BareJID) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         ok ->
@@ -504,44 +518,54 @@ get_task(_, _, IQ) ->
 %% lower function. called by higher function, bridge between odbc and higher function.
 %% ------------------------------------------------------------------
 
-get_project_ex(LServer, BaseJID, ProID, ProjectTarget) ->
-    Valid =
-        case ProjectTarget of
-            false ->
-                case odbc_organization:is_memeber(LServer, ProID, BaseJID) of
-                    true -> {true, self};
-                    _ -> {is_predefine_template(LServer, ProID), self}
-                end;
-            _ ->
-                case odbc_organization:is_link_member(LServer, ProID, BaseJID, ProjectTarget) of
-                    true -> {true, link};
-                    _ ->false
-                end
-        end,
+get_project_ex(LServer, BareJID, {ProID, ProjectTarget}, Type) ->
+    Valid = case Type of
+                self ->
+                    case odbc_organization:is_member(LServer, ProID, BareJID) of
+                        true -> {true, self};
+                        _ -> false
+                    end;
+                link ->
+                    case odbc_organization:is_link_member(LServer, ProID, BareJID, ProjectTarget) of
+                        true -> {true, link};
+                        _ ->false
+                    end;
+                _ ->
+                    {is_predefine_template(LServer, ProID), template}
+            end,
     case Valid of
-        {true, self} ->
-            {ok, Result} = odbc_organization:get_project(LServer, ProID),
+        {true, template} ->
+            {ok, #project{id = R1, name = R2, description = R3, photo = R4, job_tag = R5}} = odbc_organization:get_template(LServer, ProID),
             F = mochijson2:encoder([{utf8, true}]),
-            Json1 = [{struct, [{"id", R1}, {"name", R2}, {"description", R3}, {"photo", list_to_binary(make_head_url(binary_to_list(R4)))},
-                               {"status", R5}, {"admin", R6}, {"start_time", R7}, {"end_time", R8}, {"job_tag", R9},
-                               {"member_tag", R10}, {"link_tag", R11}]}
-                     || {R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11} <- Result ],
+            Json1 = [{struct, [{"id", R1}, {"name", R2}, {"description", R3}, {"photo", photo_url(R4)}, {"job_tag", R5}]}],
+            Json = iolist_to_binary( F( Json1 ) ),
+            {ok, Json};
+        {true, self} ->
+            {ok, #project{id = R1, name = R2, description = R3, photo = R4, status = R5, admin = R6, start_at = R7, end_at = R8,
+            job_tag = R9, member_tag = R10, link_tag = R11}} = odbc_organization:get_project(LServer, ProID),
+            F = mochijson2:encoder([{utf8, true}]),
+            Json1 = [{struct, [{"id", R1}, {"name", R2}, {"description", R3}, {"photo", photo_url(R4)},
+                {"status", R5}, {"admin", R6}, {"start_time", R7}, {"end_time", R8}, {"job_tag", R9},
+                {"member_tag", R10}, {"link_tag", R11}]}],
             Json = iolist_to_binary( F( Json1 ) ),
             {ok, Json};
         {true, link} ->
-            {ok, R1, R2, _R3, R4, _R5, _R6, _R7, _R8, R9, R10, _R11} = odbc_organization:get_project(LServer, ProjectTarget),
+            {ok, #project{id = R1, name = R2, description = R3, photo = R4, job_tag = R9, member_tag = R10}}
+                = odbc_organization:get_project(LServer, ProjectTarget),
             F = mochijson2:encoder([{utf8, true}]),
-            Json = {struct, [{"id", R1}, {"name", R2}, {"photo", list_to_binary(make_head_url(binary_to_list(R4)))},
+            Json = {struct, [{"id", R1}, {"name", R2}, {"photo", photo_url(R4)},
                 {"job_tag", R9}, {"member_tag", R10}]},
             {ok, iolist_to_binary(F({struct, [{<<"self_project">>, ProID}, {<<"link_project">>, Json}]}))};
         _ ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
-list_project_ex(LServer, BaseJID, Type) ->
+% jid is used when type = list_project.
+list_project_ex(LServer, BareJID, Type, JID) ->
     case Type of
         list_project ->
-            case odbc_organization:list_project(LServer, BaseJID, false) of
+            JID1 = if JID =:= false -> BareJID; true -> JID end,
+            case odbc_organization:list_project(LServer, JID1, false) of
                 {ok, Result} ->
                     F = mochijson2:encoder([{utf8, true}]),
                     Json1 = [{struct, [{"id", R1}, {"name", R2}, {"description", R3}, {"photo",photo_url(R4)},
@@ -555,7 +579,7 @@ list_project_ex(LServer, BaseJID, Type) ->
                     {error, ?ERR_INTERNAL_SERVER_ERROR}
             end;
         list_template ->
-            case odbc_organization:list_project(LServer, BaseJID, true) of
+            case odbc_organization:list_project(LServer, BareJID, true) of
                 {ok, Result} ->
                     F = mochijson2:encoder([{utf8, true}]),
                     Json1 = [{struct, [{"id", R1}, {"name", R2}, {"description", R3},
@@ -570,47 +594,52 @@ list_project_ex(LServer, BaseJID, Type) ->
     end.
 
 %% remove check authority???
-get_structure_ex(LServer, BaseJID, ProID, ProjectTarget, IsTemplate) ->
+get_structure_ex(LServer, BareJID, ProID, ProjectTarget, IsTemplate) ->
     Valid = case IsTemplate of
                 false ->
-                    case odbc_organization:is_memeber(LServer, ProID, BaseJID) of
-                        true ->
-                            case ProjectTarget of
-                                false ->
-                                    {true, ProID};
-                                _ ->
-                                    case odbc_organization:is_link_member(LServer, ProID, BaseJID, ProjectTarget) of
-                                        true -> {true, ProjectTarget};
-                                        _ ->{true, ProID}
-                                    end
+                    case ProjectTarget of
+                        false ->
+                            case odbc_organization:is_member(LServer, ProID, BareJID) of
+                                true -> {true, ProID};
+                                _ -> {false, ProID}
                             end;
-                        _ -> {false, ProID}
+                        _ ->
+                            case odbc_organization:is_link_member(LServer, ProID, BareJID, ProjectTarget) of
+                                true -> {true, ProjectTarget};
+                                _ ->{false, ProID}
+                            end
                     end;
                 _ ->
                     {is_predefine_template(LServer, ProID), integer_to_binary(0 - binary_to_integer(ProID))}
             end,
     case Valid of
         {true, Project} ->
-            {ok, Result} = odbc_organization:get_structure(LServer, Project),
+            {ok, Result} = odbc_organization:get_project_nodes(LServer, Project, ["id", "name", "lft", "rgt", "department", "department_level", "department_id"]),
             Json1 = [{struct,[{<<"id">>, R1}, {<<"name">>, R2}, {<<"left">>, R3}, {<<"right">>, R4}, {<<"part">>, R5}, {<<"part_level">>, R6}, {<<"part_id">>, R7}]}
                      || {R1, R2, R3, R4, R5, R6, R7}<- Result],
             F = mochijson2:encoder([{utf8, true}]),
-            Json = iolist_to_binary( F( {struct, [{<<"project">>, ProID}, {<<"structure">>, Json1}]} )),
+            TemplateOrProject = if IsTemplate =:= true -> <<"template">>; true -> <<"project">> end,
+            Json = iolist_to_binary( F( {struct, [{TemplateOrProject, Project}, {<<"structure">>, Json1}]} )),
             {ok, Json};
         {false, _} ->
-            {error, ?AFT_ERR_INVALID_TEMPLATE}
+            if
+                IsTemplate =:= true ->
+                    {error, ?AFT_ERR_INVALID_TEMPLATE};
+                true ->
+                    {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
+            end
     end.
 
-create_ex(LServer, ProjectName, BaseJID, Template, Job) ->
+create_ex(LServer, ProjectName, BareJID, Template, Job) ->
     case odbc_organization:is_project_name_exist(LServer, ProjectName) of
         false ->
-            case odbc_organization:node_exist(LServer, integer_to_binary(0 - binary_to_integer(Template)), Job) of
+            case odbc_organization:node_exist(LServer, #node{id = Job, project = integer_to_binary(0 - binary_to_integer(Template))}) of
                 {ok, true} ->
-                    case odbc_organization:add_project(LServer, #project{name = ProjectName, description = <<"">>, admin = BaseJID}, Template, Job) of
+                    case odbc_organization:add_project(LServer, #project{name = ProjectName, description = <<"">>, admin = BareJID}, Template, Job) of
                         {ok, #project{id = Id, name = _Name, photo = Photo ,description = _Desc, job_tag = JobTag, start_at = StartTime},
                          #node{id = JobId, name=JobName, lft = Left, rgt = Right, department = Part, department_level = PartLevel, department_id = PartID}} ->
-                            PhotoURL = list_to_binary(make_head_url(binary_to_list(Photo))),
-                            ejabberd_hooks:run(create_project, LServer, [LServer, BaseJID, PartID, Template, Job, Id, JobId]),
+                            PhotoURL = photo_url(Photo),
+                            ejabberd_hooks:run(create_project, LServer, [LServer, BareJID, PartID, Template, Job, Id, JobId]),
                             {ok, <<"{\"project\":{\"id\":\"", Id/binary, "\",\"name\":\"", ProjectName/binary,
                                     "\",\"photo\":\"", PhotoURL/binary, "\",\"job_tag\":\"", JobTag/binary,
                                     "\",\"member_tag\":\"", JobTag/binary, "\",\"link_tag\":\"", JobTag/binary,
@@ -619,7 +648,7 @@ create_ex(LServer, ProjectName, BaseJID, Template, Job) ->
                                     "\",\"left\":\"", Left/binary, "\",\"right\":\"", Right/binary,
                                     "\",\"part\":\"", Part/binary, "\",\"part_level\":\"", PartLevel/binary,
                                     "\",\"part_id\":\"", PartID/binary,
-                                    "\"},\"member\":{\"jid\":\"", BaseJID/binary, "\"}}">>};
+                                    "\"},\"member\":{\"jid\":\"", BareJID/binary, "\"}}">>};
                         {error, ErrorReason} ->
                             ?ERROR_MSG("Create Project failed, ProjectName=~p", [ProjectName, ErrorReason]),
                             {error, ?ERR_INTERNAL_SERVER_ERROR}
@@ -631,11 +660,11 @@ create_ex(LServer, ProjectName, BaseJID, Template, Job) ->
             {error, ?AFT_ERR_PROJECT_NAME_EXIST}
     end.
 
-finish_ex(LServer, ProID, BaseJID) ->
-    case is_admin(LServer, BaseJID, ProID) of
-        true ->
-            case project_status(LServer, ProID) of
-                running ->
+finish_ex(LServer, ProID, BareJID) ->
+    case project_status(LServer, ProID) of
+        {running, AdminJID} ->
+            if
+                BareJID =:= AdminJID ->
                     case odbc_organization:finish_project(LServer, ProID) of
                         {ok, EndTime} ->
                             {ok, EndTime};
@@ -645,11 +674,11 @@ finish_ex(LServer, ProID, BaseJID) ->
                             ?ERROR_MSG("finish project=~p failed, reason=~p", [ProID, ErrorReason]),
                             {error, ?ERR_INTERNAL_SERVER_ERROR}
                     end;
-                finished ->
-                    {error, ?AFT_ERR_ALLREADY_FINISHED}
+                true ->
+                    {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
-        false ->
-            {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
+        {finished, _} ->
+            {error, ?AFT_ERR_ALLREADY_FINISHED}
     end.
 
 subscribe_status(true,  false, subscribe)    -> subscribe_again;
@@ -666,8 +695,9 @@ subscribe_status(true,  true,  _)            -> {error, ?AFT_ERR_ALLREADY_SUBSCR
 subscribe_ex(LServer, JID, ProSource, ProTarget, Type) ->
     case is_admin(LServer, JID, ProSource) of
         true ->
-            case odbc_organization:is_project_exist(LServer, ProTarget) of
-                true ->
+            case project_status(LServer, ProTarget) of
+                not_exist -> {error, ?AFT_ERR_PROJECT_NOT_EXIST};
+                _ ->
                     To = odbc_organization:is_subscribe_exist(LServer, ProSource, ProTarget),
                     From = odbc_organization:is_subscribe_exist(LServer, ProTarget, ProSource),
                     case subscribe_status(To, From, Type) of
@@ -688,9 +718,7 @@ subscribe_ex(LServer, JID, ProSource, ProTarget, Type) ->
                             odbc_organization:unsubscribed(LServer, ProTarget, ProSource);
                         unsubscribe ->
                             odbc_organization:unsubscribe(LServer, ProSource, ProTarget)
-                    end;
-                _ ->
-                    {error, ?AFT_ERR_PROJECT_NOT_EXIST}
+                    end
             end;
         false ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
@@ -710,17 +738,18 @@ search_project_ex(LServer, Name) ->
 list_children_jobs_ex(LServer, JID, ProID, Job) ->
     case is_admin(LServer, JID, ProID) of
         true ->
-            {ok, Result} = odbc_organization:get_all_nodes(LServer, ProID),
+            {ok, Result} = odbc_organization:get_all(LServer, ProID, ["id", "name", "department", "department_level", "department_id"]),
             Json = [{struct, [{<<"job_id">>, R1}, {<<"job_name">>, R2}, {<<"part">>, R3}, {<<"part_level">>, R4}, {<<"part_id">>, R5}]}
                     || {R1, R2, R3, R4, R5} <- Result],
             F = mochijson2:encoder([{utf8, true}]),
             {ok, iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"job">>, Json}]}))};
         false ->
-            case odbc_organization:is_member2(LServer, ProID, Job, JID) of
+            case odbc_organization:is_member(LServer, ProID, JID, Job) of
                 false ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH};
                 true ->
-                    {ok, Result} = odbc_organization:get_children_job(LServer, Job, ProID),
+                    {ok, Result} = odbc_organization:get_child_nodes(LServer, #node{id = Job, project = ProID},
+                        ["id", "name", "department", "department_level", "department_id"]),
                     Json = [{struct, [{<<"job_id">>, R1}, {<<"job_name">>, R2}, {<<"part">>, R3}, {<<"part_level">>, R4}, {<<"part_id">>, R5}]}
                             || {R1, R2, R3, R4, R5} <- Result],
                     F = mochijson2:encoder([{utf8, true}]),
@@ -728,25 +757,20 @@ list_children_jobs_ex(LServer, JID, ProID, Job) ->
             end
     end.
 
-check_add_member_valid(LServer, ProID, _BaseJID, List) ->
-    %% TOFIX: check BaseJID is List jid job's parent in project ???
-    %% only check BaseJID in project is ok.
-    case odbc_organization:get_structure(LServer, ProID) of
+check_add_member_valid(LServer, ProID, _BareJID, List) ->
+    %% TOFIX: check BareJID is List jid job's parent in project ???
+    %% only check BareJID in project is ok.
+    case odbc_organization:get_project_nodes(LServer, ProID, ["id"]) of
         {ok, Result} ->
             {ValidJobList, _InvalidJobList} = lists:partition(
                 fun({E_ID, _}) ->
-                    case lists:keyfind(E_ID, 1, Result) of
+                    case lists:member({E_ID}, Result) of
                         false -> false;
                         _ -> true
                     end
                 end,
                 List),
-            {ok, Result2} = odbc_organization:get_all(LServer, ProID),
-            ExistList = lists:filtermap(
-                fun({E_JID, E_ID, _E_Name, _E_Part}) ->
-                    {true, {E_ID, E_JID}}
-                end,
-                Result2),
+            {ok, ExistList} = odbc_organization:get_all(LServer, ProID, ["id", "jid"]),
             {ValidList, _DuplicationJIDList} = lists:partition(
                 fun({E_ID, E_JID}) ->
                     case lists:keyfind(E_JID, 2, ExistList) of
@@ -762,17 +786,17 @@ check_add_member_valid(LServer, ProID, _BaseJID, List) ->
             {error, ?ERR_INTERNAL_SERVER_ERROR}
     end.
 
-add_member_ex(LServer, ProID, BaseJID, List) ->
+add_member_ex(LServer, ProID, BareJID, List) ->
     case project_status(LServer, ProID) of
-        running ->
-            case odbc_organization:is_memeber(LServer, ProID, BaseJID) of
+        {running, _AdminJID} ->
+            case odbc_organization:is_member(LServer, ProID, BareJID) of
                 true ->
-                    case check_add_member_valid(LServer, ProID, BaseJID, List) of
+                    case check_add_member_valid(LServer, ProID, BareJID, List) of
                         {error, Error} ->
                             {error, Error};
                         {ok, ValidList} ->
                             if length(ValidList) > 0 ->
-                                    case odbc_organization:add_employees(LServer, ProID, BaseJID, ValidList) of
+                                    case odbc_organization:add_employees(LServer, ProID, BareJID, ValidList) of
                                         {ok, MemberTag} ->
                                             ejabberd_hooks:run(add_member, LServer, [LServer, ProID, ValidList]),
                                             {ok, MemberTag, ValidList};
@@ -787,24 +811,24 @@ add_member_ex(LServer, ProID, BaseJID, List) ->
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
-        finished ->
+        {finished, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED}
     end.
 
-add_job_ex(LServer, ProID, BaseJID, SelfJobID, ParentJobID, PartID, JobName) ->
+add_job_ex(LServer, ProID, BareJID, SelfJobID, ParentJobID, PartID, JobName) ->
     case project_status(LServer, ProID) of
-        running ->
-            case odbc_organization:get_job_info(LServer, ParentJobID) of
+        {running, AdminJID} ->
+            case odbc_organization:get_node(LServer, ParentJobID) of
                 {ok, []} ->
                     {error, ?AFT_ERR_PARENT_NOT_EXIST};
-                {ok, #node{department=ParentPart, department_level = ParentPartLevel, department_id= ParentPartID}} ->
-                    Valid = case is_admin(LServer, BaseJID, ProID) of
-                                false ->
+                {ok, #node{department=ParentPart, department_level = ParentPartLevel, department_id= ParentPartID, project = ProID}} ->
+                    Valid = if
+                                BareJID =:= AdminJID -> true;
+                                true ->
                                     if
                                         SelfJobID =:= ParentJobID -> true;
                                         true -> odbc_organization:is_child(LServer, ProID, SelfJobID, ParentJobID)
-                                    end;
-                                true -> true
+                                    end
                             end,
                     case Valid of
                         false -> {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH};
@@ -820,36 +844,37 @@ add_job_ex(LServer, ProID, BaseJID, SelfJobID, ParentJobID, PartID, JobName) ->
                                             {error, ?ERR_INTERNAL_SERVER_ERROR}
                                     end;
                                 true ->
-                                    case odbc_organization:get_department_member_parent(LServer, ProID, PartID, ParentPartLevel) of
-                                        {ok, ParentJobList} ->
-                                            case lists:member({ParentJobID}, ParentJobList) of
-                                                true ->
-                                                    case odbc_organization:add_node(LServer, ParentJobID,
-                                                        #node{name = JobName, department = ParentPart, department_level = ParentPartLevel, department_id = ParentPartID}) of
-                                                        {ok, JobTag, _Node} ->
-                                                            {ok, JobTag};
-                                                        {error, ErrorReason} ->
-                                                            ?ERROR_MSG("add_jox error, reason=~p", [ErrorReason]),
-                                                            {error, ?ERR_INTERNAL_SERVER_ERROR}
-                                                    end;
-                                                false ->
-                                                    {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
-                                            end
-                                    end
+                                    {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
+%%                                     case odbc_organization:get_department_member_parent(LServer, ProID, PartID, ParentPartLevel) of
+%%                                         {ok, ParentJobList} ->
+%%                                             case lists:member({ParentJobID}, ParentJobList) of
+%%                                                 true ->
+%%                                                     case odbc_organization:add_node(LServer, ParentJobID,
+%%                                                         #node{name = JobName, department = ParentPart, department_level = ParentPartLevel, department_id = ParentPartID}) of
+%%                                                         {ok, JobTag, _Node} ->
+%%                                                             {ok, JobTag};
+%%                                                         {error, ErrorReason} ->
+%%                                                             ?ERROR_MSG("add_jox error, reason=~p", [ErrorReason]),
+%%                                                             {error, ?ERR_INTERNAL_SERVER_ERROR}
+%%                                                     end;
+%%                                                 false ->
+%%                                                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
+%%                                             end
+%%                                     end
                             end
                     end;
                 _ ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
-        finished ->
+        {finished, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED}
     end.
 
-list_link_project_ex(LServer, ProID, BaseJID) ->
-    case odbc_organization:is_memeber(LServer, ProID, BaseJID) of
+list_link_project_ex(LServer, ProID, BareJID) ->
+    case odbc_organization:is_member(LServer, ProID, BareJID) of
         true ->
-            {ok, Result} = odbc_organization:get_link_project(LServer, ProID),
-            Json = [{struct, [{<<"id">>, R1}, {<<"name">>, R2}, {<<"photo">>, list_to_binary(make_head_url(binary_to_list(R3)))},
+            {ok, Result} = odbc_organization:list_link_project(LServer, ProID),
+            Json = [{struct, [{<<"id">>, R1}, {<<"name">>, R2}, {<<"photo">>,photo_url(R3)},
                 {<<"job_tag">>, R4}, {<<"member_tag">>, R5}]} || {R1, R2, R3, R4, R5} <- Result],
             F = mochijson2:encoder([{utf8, true}]),
             {ok, iolist_to_binary(F({struct, [{<<"self_project">>, ProID}, {<<"link_project">>, Json}]}))};
@@ -857,22 +882,22 @@ list_link_project_ex(LServer, ProID, BaseJID) ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
-list_member_ex(LServer, ProID, BaseJID, ProjectTarget) ->
-    case odbc_organization:is_memeber(LServer, ProID, BaseJID) of
+list_member_ex(LServer, ProID, BareJID, ProjectTarget) ->
+    case odbc_organization:is_member(LServer, ProID, BareJID) of
         true ->
             case ProjectTarget of
                 false ->
-                    {ok, Result} = odbc_organization:get_all(LServer, ProID),
+                    {ok, Result} = odbc_organization:get_all(LServer, ProID, ["jid", "id"]),
                     Json = [{struct, [{<<"jid">>, R1}, {<<"job_id">>, R2}]}
-                            || {R1, R2, _R3, _R4} <- Result],
+                            || {R1, R2} <- Result],
                     F = mochijson2:encoder([{utf8, true}]),
                     {ok, iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"member">>, Json}]}))};
                 _ ->
-                    case odbc_organization:is_link_member(LServer, ProID, BaseJID, ProjectTarget) of
+                    case odbc_organization:is_link_member(LServer, ProID, BareJID, ProjectTarget) of
                         true ->
-                            {ok, Result} = odbc_organization:get_all(LServer, ProjectTarget),
+                            {ok, Result} = odbc_organization:get_all(LServer, ProjectTarget, ["jid", "id"]),
                             Json = [{struct, [{<<"jid">>, R1}, {<<"job_id">>, R2}]}
-                                    || {R1, R2, _R3, _R4} <- Result],
+                                    || {R1, R2} <- Result],
                             F = mochijson2:encoder([{utf8, true}]),
                             {ok, iolist_to_binary(F({struct, [{<<"project">>, ProjectTarget}, {<<"member">>, Json}]}))};
                         _ ->
@@ -883,24 +908,22 @@ list_member_ex(LServer, ProID, BaseJID, ProjectTarget) ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
-delete_member_ex(LServer, ProID, BaseJID, SelfJob, JID, Job) ->
+delete_member_ex(LServer, ProID, BareJID, SelfJob, JID, Job) ->
     case project_status(LServer, ProID) of
-        running ->
-            case BaseJID =:= JID of
+        {running, AdminJID} ->
+            case BareJID =:= JID of
                 true ->
                     {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH};
                 _ ->
-                    PriviligeOK = case is_admin(LServer, BaseJID, ProID) of
-                                      true -> ok;
-                                      false ->
-                                          case odbc_organization:is_child(LServer, ProID, BaseJID, SelfJob, JID, Job) of
+                    PriviligeOK = if
+                                      BareJID =:= AdminJID -> ok;
+                                      true ->
+                                          case odbc_organization:is_child(LServer, ProID, BareJID, SelfJob, JID, Job) of
                                               false -> {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH};
                                               true ->
-                                                  case is_admin(LServer, JID, ProID) of
-                                                      true ->
-                                                          {error, ?AFT_ERR_DELETE_ADMIN};
-                                                      false ->
-                                                          ok
+                                                  if
+                                                      JID =:= AdminJID -> {error, ?AFT_ERR_DELETE_ADMIN};
+                                                      true -> ok
                                                   end
                                           end
                                   end,
@@ -909,7 +932,7 @@ delete_member_ex(LServer, ProID, BaseJID, SelfJob, JID, Job) ->
                         ok ->
                             case odbc_organization:delete_task(LServer, ProID, JID) of
                                 ok ->
-                                    case odbc_organization:delete_employee(LServer, ProID, JID, Job) of
+                                    case odbc_organization:delete_employee(LServer, ProID, BareJID, {JID, Job}) of
                                         {ok, MemberTag} ->
                                             ejabberd_hooks:run(delete_member, LServer, [LServer, JID, ProID, Job]),
                                             {ok, MemberTag};
@@ -925,12 +948,12 @@ delete_member_ex(LServer, ProID, BaseJID, SelfJob, JID, Job) ->
                             Error
                     end
             end;
-        finished ->
+        {finished, _} ->
             {error, ?AFT_ERR_ALLREADY_FINISHED}
     end.
 
-set_photo_ex(LServer, ProID, BaseJID, Photo) ->
-    case is_admin(LServer, BaseJID, ProID) of
+set_photo_ex(LServer, ProID, BareJID, Photo) ->
+    case is_admin(LServer, BareJID, ProID) of
         true ->
             case odbc_organization:set_photo(LServer, ProID, Photo) of
                 ok -> ok;
@@ -943,32 +966,32 @@ set_photo_ex(LServer, ProID, BaseJID, Photo) ->
 get_photo_ex(LServer, ProID, TempID) ->
     case TempID of
         false ->
-            case odbc_organization:get_photo(LServer, ProID, false) of
-                {ok, []} ->
+            case odbc_organization:get_project(LServer, ProID) of
+                {ok, #project{photo = undefined}} ->
                     {ok, <<"{\"project\":\"", ProID/binary, "\", \"photo\":\"\"}">>};
-                {ok, [{Photo}]} ->
+                {ok, #project{photo = Photo}} ->
                     PhotoUrl = photo_url(Photo),
                     {ok, <<"{\"project\":\"", ProID/binary, "\", \"photo\":\"", PhotoUrl/binary, "\"}">>}
             end;
         _ ->
-            case odbc_organization:get_photo(LServer, TempID, true) of
-                {ok, []} ->
+            case odbc_organization:get_template(LServer, TempID) of
+                {ok, #project{photo = undefined}} ->
                     {ok, <<"{\"template\":\"", TempID/binary, "\", \"photo\":\"\"}">>};
-                {ok, [{Photo}]} ->
+                {ok, #project{photo = Photo}} ->
                     PhotoUrl = photo_url(Photo),
                     {ok, <<"{\"template\":\"", TempID/binary, "\", \"photo\":\"", PhotoUrl/binary, "\"}">>}
             end
     end.
 
-change_admin_ex(LServer, Project, Admin, BaseJID) ->
-    case odbc_organization:is_memeber(LServer, Project, Admin) of
+change_admin_ex(LServer, Project, Admin, BareJID) ->
+    case odbc_organization:is_member(LServer, Project, Admin) of
         true ->
             {true, OldAdmin} = get_admin(LServer, Project),
             if
-                (Admin =:= OldAdmin) or (BaseJID =:= Admin) -> {error, ?AFT_ERR_MEMBER_INVALID};
+                (Admin =:= OldAdmin) or (BareJID =:= Admin) -> {error, ?AFT_ERR_MEMBER_INVALID};
                 true ->
                     if
-                        BaseJID =:= OldAdmin ->
+                        BareJID =:= OldAdmin ->
                             case odbc_organization:change_admin(LServer, Project, Admin) of
                                 ok -> ok;
                                 {error, ErrorReason} ->
@@ -982,7 +1005,7 @@ change_admin_ex(LServer, Project, Admin, BaseJID) ->
     end.
 
 get_task_member_ex(LServer, Project, BareJID, JobID) ->
-    case odbc_organization:is_member2(LServer, Project, JobID, BareJID) of
+    case odbc_organization:is_member(LServer, Project, BareJID, JobID) of
         true ->
             Result = odbc_organization:get_task_jid(LServer, Project, JobID),
             JIDs = [R1 || {R1} <- Result],
@@ -993,7 +1016,7 @@ get_task_member_ex(LServer, Project, BareJID, JobID) ->
     end.
 
 get_task_ex(LServer, Project, BareJID, SelfJobID, JID, TargetJobID, Page) ->
-    case odbc_organization:is_member2(LServer, Project, SelfJobID, BareJID) of
+    case odbc_organization:is_member(LServer, Project, BareJID, SelfJobID) of
         true ->
             StartLine = integer_to_binary((binary_to_integer(Page) - 1) * binary_to_integer(?TASK_PAGE_ITEM_COUNT)),
             F = mochijson2:encoder([{utf8, true}]),
@@ -1015,40 +1038,28 @@ get_task_ex(LServer, Project, BareJID, SelfJobID, JID, TargetJobID, Page) ->
 %% helper function.
 %% ------------------------------------------------------------------
 
-%% is_predefine_template(LServer, ProID) ->
-%%     case odbc_organization:list_project(LServer, <<"0">>, true) of
-%%         {ok, Result} ->
-%%             case lists:keyfind(ProID, 1, Result) of
-%%                 false ->
-%%                     false;
-%%                 _ ->
-%%                     true
-%%             end;
-%%         {error, _Reason} ->
-%%             failed
-%%     end.
-
 is_predefine_template(LServer, TemplateID) ->
-    odbc_organization:is_template(LServer, TemplateID).
-
-get_admin(LServer, ProID)->
-    case odbc_organization:get_admin(LServer, ProID) of
-        {ok, []} ->
-            {false, empty};
-        {ok, [{Admin}]} ->
-            {true, Admin};
-        {error, _Reason} ->
-            {false, failed}
-    end.
-
-is_admin(LServer, BaseJID, ProID) ->
-    case odbc_organization:get_admin(LServer, ProID) of
-        {ok, [{Admin}]} ->
-            if Admin =:= BaseJID -> true;
-               true -> false
-            end;
+    case odbc_organization:get_template(LServer, TemplateID) of
+        {ok, #project{id = undefined}} ->
+            false;
+        {ok, #project{id = _ID}} ->
+            true;
         _ ->
             false
+    end.
+
+get_admin(LServer, ProID)->
+    case odbc_organization:get_project(LServer, ProID) of
+        {ok, #project{admin = undefined}} ->
+            {false, empty};
+        {ok, #project{admin = AdminJID}} ->
+            {true, AdminJID}
+    end.
+
+is_admin(LServer, BareJID, ProID) ->
+    case get_admin(LServer, ProID) of
+        {true, BareJID} -> true;
+        _ -> false
     end.
 
 push_message(ProID, Server, ToList, Type, Contents) ->
@@ -1163,10 +1174,13 @@ photo_url(Photo) ->
         _ -> list_to_binary(make_head_url(binary_to_list(Photo)))
     end.
 
-project_status(LServer, ProID) ->
-    case odbc_organization:project_status(LServer, ProID) of
-        {ok, [{<<"1">>}]} ->
-            running;
-        {ok, [{<<"0">>}]} ->
-            finished
+project_status(LServer, Project) ->
+    case odbc_organization:get_project(LServer, Project) of
+        {ok, #project{status = <<"1">>, admin = AdminJID}} ->
+            {running, AdminJID};
+        {ok, #project{status = <<"0">>, admin = AdminJID}} ->
+            {finished, AdminJID};
+        _ ->
+            not_exist
     end.
+

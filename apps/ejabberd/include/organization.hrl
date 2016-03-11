@@ -41,16 +41,16 @@
 
 -record(project, {
     id :: integer()|binary()|undefined,
-    name :: binary(),
-    description :: binary(),
-    photo :: binary(),
-    status :: integer(),
-    admin :: binary(),
-    start_at :: binary(),
-    end_at :: binary()|undefined,
-    job_tag :: binary(),
-    member_tag :: binary(),
-    link_tag :: binary()
+    name :: binary() | undefined,
+    description :: binary() | undefined,
+    photo :: binary() | undefined,
+    status :: integer() | undefined,
+    admin :: binary() | undefined,
+    start_at :: binary() | undefined,
+    end_at :: binary() | undefined,
+    job_tag :: binary() | undefined,
+    member_tag :: binary() | undefined,
+    link_tag :: binary() | undefined
 }).
 
 %% define group type
