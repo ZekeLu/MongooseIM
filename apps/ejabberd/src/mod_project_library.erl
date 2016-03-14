@@ -1689,7 +1689,7 @@ move_privilige(LServer, Project, BareJID, Job, AdminJID, ParentID, ParentType, P
                             end;
                         (ParentType =:= ?TYPE_PUBLIC) or (ParentType =:= ?TYPE_PUB_SUB) ->
                             if
-                                ((DestType =:= ?TYPE_PUBLIC) or (DestType =:= ?TYPE_PUB_SUB)) and BareJID =:= AdminJID ->
+                                ((DestType =:= ?TYPE_PUBLIC) or (DestType =:= ?TYPE_PUB_SUB)) and (BareJID =:= AdminJID) ->
                                     allowed;
                                 true ->
                                     not_allowed
@@ -2111,24 +2111,27 @@ get_dir(LServer, Type, ParentID, ParentType, ParentName) ->
     if
         Type =:= <<"file">> ->
             if
-                (ParentType =:= ?TYPE_PUBLIC) ->
+                (ParentType =:= ?TYPE_PUBLIC) or (ParentType =:= ?TYPE_DEPARTMENT) ->
                     {ok, ParentName};
                 (ParentType =:= ?TYPE_PERSON) ->
                     {ok, <<"@">>};
-                (ParentType =:= ?TYPE_PUB_SUB) or (ParentType =:= ?TYPE_PER_SHARE) or (ParentType =:= ?TYPE_PER_PRIVATE) ->
+                (ParentType =:= ?TYPE_PUB_SUB) or (ParentType =:= ?TYPE_PER_SHARE)
+                    or (ParentType =:= ?TYPE_PER_PRIVATE) or (ParentType =:= ?TYPE_DEP_SUB) ->
                     case ejabberd_odbc:sql_query(LServer, ["select f2.name from folder as f1, folder as f2 where f1.id='",
                         ParentID, "' and f1.parent=f2.id;"]) of
                         {selected, _, [{PPName}]} ->
                             if
-                                (ParentType =:= ?TYPE_PUB_SUB) -> {ok, <<PPName/binary, ">", ParentName/binary>>};
-                                true -> {ok, <<"@>", ParentName/binary>>}
+                                (ParentType =:= ?TYPE_PUB_SUB) or (ParentType =:= ?TYPE_DEP_SUB)->
+                                    {ok, <<PPName/binary, ">", ParentName/binary>>};
+                                true ->
+                                    {ok, <<"@>", ParentName/binary>>}
                             end;
                         _ -> not_exist
                     end
             end;
        Type =:= <<"folder">> ->
            if
-               (ParentType =:= ?TYPE_PUBLIC) ->
+               (ParentType =:= ?TYPE_PUBLIC) or (ParentType =:= ?TYPE_DEPARTMENT) ->
                    {ok, ParentName};
                (ParentType =:= ?TYPE_PERSON) ->
                    {ok, <<"@">>}
@@ -2279,8 +2282,8 @@ is_user_shared_in_folder(LServer, Folder, BareJID) ->
 %% check Job is Folder's owner.(folder's type must be department or dep_sub)
 is_department_folder_leader(LServer, Project, Folder, Job, IsAdmin) ->
     AdminClause = if IsAdmin =:= true -> <<"1">>; true -> <<"0">> end,
-    case ejabberd_odbc:sql_query(LServer, ["select count(id) from folder where id='", Folder, "' project='", Project,
-        "' and (owner='", Job, "' or (f.owner='admin' and '", AdminClause, "'));"]) of
+    case ejabberd_odbc:sql_query(LServer, ["select count(id) from folder where id='", Folder, "' and project='", Project,
+        "' and (owner='", Job, "' or (owner='admin' and '", AdminClause, "'));"]) of
         {selected, _, [{<<"1">>}]} ->
             true;
         _ ->
