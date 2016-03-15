@@ -109,8 +109,8 @@ certs_priv: certs
 
 fake_cert.pem:
 	openssl req \
-	-x509 -nodes -days 365 \
-	-subj '/C=PL/ST=ML/L=Krakow/CN=mongoose-im' \
+	-x509 -nodes -days 3650 \
+	-subj '/C=CN/ST=GD/L=SZ/CN=Kissnapp' \
 	-newkey rsa:2048 -keyout fake_key.pem -out fake_cert.pem
 
 fake_server.pem:

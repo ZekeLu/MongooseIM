@@ -618,8 +618,8 @@ get_structure_ex(LServer, BareJID, ProID, ProjectTarget, IsTemplate) ->
             Json1 = [{struct,[{<<"id">>, R1}, {<<"name">>, R2}, {<<"left">>, R3}, {<<"right">>, R4}, {<<"part">>, R5}, {<<"part_level">>, R6}, {<<"part_id">>, R7}]}
                      || {R1, R2, R3, R4, R5, R6, R7}<- Result],
             F = mochijson2:encoder([{utf8, true}]),
-            TemplateOrProject = if IsTemplate =:= true -> <<"template">>; true -> <<"project">> end,
-            Json = iolist_to_binary( F( {struct, [{TemplateOrProject, Project}, {<<"structure">>, Json1}]} )),
+            {TemplateOrProject, ProjectID} = if IsTemplate =:= true -> {<<"template">>, ProID}; true -> {<<"project">>, Project} end,
+            Json = iolist_to_binary( F( {struct, [{TemplateOrProject, ProjectID}, {<<"structure">>, Json1}]} )),
             {ok, Json};
         {false, _} ->
             if
