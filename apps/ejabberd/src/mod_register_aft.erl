@@ -574,8 +574,9 @@ verify_change_phone(User, Server, Phone, Code) ->
 %%% help functions. called by Internal functions.
 %%%===================================================================
 
+%% %% http://www.yuntongxun.com
 %% %%  SMS begin.
-%% %% make sure inets and ssl is started, ejabberd start inet and ssl when started.
+%% %% make sure inets and ssl is started. ejabberd start inet and ssl when started, so this is ok.
 %% %% if test sms function,
 %% %% 1. uncomment this code;
 %% %% 2. change 'AccountID', 'Token', 'AppId', 'URLPrefix' in sendcode/4;
