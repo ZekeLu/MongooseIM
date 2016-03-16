@@ -530,8 +530,8 @@ CREATE INDEX i_file_log_project ON library_log(project);
 CREATE TABLE version_update(
     id int PRIMARY KEY NOT NULL auto_increment,
     type tinyint NOT NULL DEFAULT 0,
-    number int NOT NULL,
-    version varchar(50) CHARACTER SET binary NOT NULL,
+    version_code int NOT NULL,
+    version_name varchar(50) CHARACTER SET binary NOT NULL,
     created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     url varchar(1024) NOT NULL,
     description blob NOT NULL

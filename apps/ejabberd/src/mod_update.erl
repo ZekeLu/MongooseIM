@@ -85,12 +85,12 @@ parse_url(Req) ->
     end.
 
 get_update(LServer, Type) ->
-    Query = ["select type, number, version, created_at, url, description from version_update where type='", Type , "' order by id desc limit 1;" ],
+    Query = ["select type, version_code, version_name, created_at, url, description from version_update where type='", Type , "' order by id desc limit 1;" ],
 
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, _, [{Type, Number, Version, CreatedAt, Url, Description}]} ->
+        {selected, _, [{Type, Code, Name, CreatedAt, Url, Description}]} ->
             F = mochijson2:encoder([{utf8, true}]),
-            Json = {struct, [{<<"type">>, Type}, {<<"number">>, Number}, {<<"version">>, Version}, {<<"create_time">>, CreatedAt},
+            Json = {struct, [{<<"type">>, Type}, {<<"version_code">>, Code}, {<<"version_name">>, Name}, {<<"create_time">>, CreatedAt},
                 {<<"url">>, Url}, {<<"description">>, Description}]},
             iolist_to_binary( F(Json) );
                 _ ->
