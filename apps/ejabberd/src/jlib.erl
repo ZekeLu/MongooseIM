@@ -73,7 +73,8 @@
          md5_hex/2,
          generate_uuid/0,
          random_code/0,
-         random_code/1]).
+         random_code/1,
+         format_to_utc/1]).
 
 -include_lib("exml/include/exml.hrl").
 -include_lib("exml/include/exml_stream.hrl"). % only used to define stream types
@@ -1163,3 +1164,14 @@ random_code(Length) ->
         [I2 | Acc]
     end, [], lists:seq(1, Length)),
     "666666". %% TOFIX delete this line when sms is ok.
+
+
+%% -----------------------------------------
+%% format timestamp to UTC format.
+%% eg: <<"2016-03-17 11:50:02">> --> <<"2016-03-17T11:50:02Z">>
+format_to_utc(Timestamp) ->
+    B1 = binary:replace(Timestamp, <<" ">>, <<"T">>),
+    <<B1/binary, "Z">>.
+
+
+

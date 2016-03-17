@@ -89,8 +89,9 @@ get_update(LServer, Type) ->
 
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, [{Type, Code, Name, CreatedAt, Url, Description}]} ->
+            CreatedAtUTC = jlib:format_to_utc(CreatedAt),
             F = mochijson2:encoder([{utf8, true}]),
-            Json = {struct, [{<<"type">>, Type}, {<<"version_code">>, Code}, {<<"version_name">>, Name}, {<<"create_time">>, CreatedAt},
+            Json = {struct, [{<<"type">>, Type}, {<<"version_code">>, Code}, {<<"version_name">>, Name}, {<<"create_time">>, CreatedAtUTC},
                 {<<"url">>, Url}, {<<"description">>, Description}]},
             iolist_to_binary( F(Json) );
                 _ ->
