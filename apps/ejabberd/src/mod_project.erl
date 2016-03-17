@@ -815,6 +815,7 @@ add_member_ex(LServer, ProID, BareJID, List) ->
             {error, ?AFT_ERR_ALLREADY_FINISHED}
     end.
 
+% TOFIX: have not check BareJID map to SelfJobID is ok, should check it????
 add_job_ex(LServer, ProID, BareJID, SelfJobID, ParentJobID, PartID, JobName) ->
     case project_status(LServer, ProID) of
         {running, AdminJID} ->
@@ -1001,7 +1002,9 @@ change_admin_ex(LServer, Project, Admin, BareJID) ->
                         true ->
                             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
                     end
-            end
+            end;
+        _ ->
+            {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
 get_task_member_ex(LServer, Project, BareJID, JobID) ->

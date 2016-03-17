@@ -132,8 +132,8 @@ get_node(LServer, Job) ->
     Query = ["select id, name, lft, rgt, depth, department, department_level, department_id, project from organization where id ='", Job, "';" ],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, [{ID, Name, Left, Right, Depth, Department, DepartmentLevel, DepartmentID, Project}]} ->
-            {ok, #node{id=ID, name=Name, lft=Left, rgt = Right, depth = Depth,
-                department = Department, department_level = DepartmentLevel, department_id = DepartmentID}};
+            {ok, #node{id=ID, name=Name, lft=Left, rgt = Right, depth = Depth, department = Department,
+                department_level = DepartmentLevel, department_id = DepartmentID, project = Project}};
         Reason ->
             {error, Reason}
     end.
@@ -508,7 +508,7 @@ change_admin(LServer, Project, Admin) ->
 %% get project jids who has task.
 get_task_jid(LServer, Project, _JobID) ->
     Query = ["select gu.jid from groupuser as gu join groupinfo as gi on gu.groupid=gi.groupid and gi.project='", Project,
-        "' and gi.type=2 and gi.status=1 group by gu.jid"],
+        "' and gi.type=2 and gi.status=1 group by gu.jid;"],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, R} ->
             R;
