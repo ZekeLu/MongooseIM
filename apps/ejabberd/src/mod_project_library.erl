@@ -134,6 +134,7 @@ delete_member(LServer, DeleteJID, Project, Job) ->
     end.
 
 
+
 add_member(LServer, Project, AddIDJIDList) ->
     InJIDs =
     lists:foldl(fun({_, E_JID}, AccIn) ->
@@ -900,11 +901,15 @@ share_ex(LServer, BareJID, ID, Users, Project) ->
                                     InsertValues = if
                                                AfterType =:= ?TYPE_PER_SHARE ->
                                                    lists:foldl(fun(E_JID, AccIn) ->
-                                                       AccIn1 = if
-                                                                    AccIn =:= <<>> -> <<>>;
-                                                                    true -> <<AccIn/binary, ",">>
-                                                                end,
-                                                       <<AccIn1/binary, "('", ID/binary, "', '", E_JID/binary, "')">>
+                                                       if
+                                                           E_JID =:= BareJID -> AccIn; %% filter self_jid.
+                                                           true ->
+                                                               AccIn1 = if
+                                                                            AccIn =:= <<>> -> <<>>;
+                                                                            true -> <<AccIn/binary, ",">>
+                                                                        end,
+                                                               <<AccIn1/binary, "('", ID/binary, "', '", E_JID/binary, "')">>
+                                                       end
                                                    end,
                                                        <<>>,
                                                        Users);
@@ -959,10 +964,23 @@ share_ex(LServer, BareJID, ID, Users, Project) ->
 move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
     case check_status(LServer, Project, BareJID) of
         {is_member, running, Job, AdminJID} ->
-            case query_self_parent_info('name#id-name-type-owner', LServer, ID, Type) of
-                [{SelfName, ParentID, ParentName, ParentType, ParentOwner}] ->
-                    case query_folder_info('id-name-type-owner', LServer, ["and id='", DestFolder, "';"]) of
-                        [{DestID, DestName, DestType, DestOwner}] ->
+            QueryResult =
+            case Type of
+                <<"folder">> ->
+                    case query_self_parent_info('name-type#id-name-type-owner', LServer, ID, Type) of
+                        [{R1, R2, R3, R4, R5, R6}] -> [{R1, R2, R3, R4, R5, R6}];
+                        _ ->error
+                    end;
+                <<"file">> ->
+                    case query_self_parent_info('name#id-name-type-owner', LServer, ID, Type) of
+                        [{R1, R2, R3, R4, R5}] -> [{R1, <<>>,  R2, R3, R4, R5}];
+                        _ ->error
+                    end
+            end,
+            case QueryResult of
+                [{SelfName, SelfType, ParentID, ParentName, ParentType, ParentOwner}] ->
+                    case query_folder_info('id-name-type-owner-department_id', LServer, ["and id='", DestFolder, "';"]) of
+                        [{DestID, DestName, DestType, DestOwner, DepartmentID}] ->
                             case move_privilige(LServer, Project, BareJID, Job, AdminJID, ParentID,
                                 ParentType, ParentOwner, Type, 0, DestFolder, DestType, DestOwner) of
                                 allowed ->
@@ -980,11 +998,18 @@ move_ex(LServer, BareJID, ID, DestFolder, Project, Type) ->
                                             <<"folder">> ->
                                                 case ejabberd_odbc:sql_query_t(["select count(id) from folder where parent='", DestFolder, "' and name='", escape(SelfName), "' and status='1';"]) of
                                                     {selected,_,[{<<"0">>}]} ->
-                                                        TypeAfterMoved = case DestType of
-                                                                             ?TYPE_PUBLIC -> ?TYPE_PUB_SUB;
-                                                                             ?TYPE_DEPARTMENT -> ?TYPE_DEP_SUB
-                                                                         end,
-                                                        {updated, 1} = ejabberd_odbc:sql_query_t(["update folder set parent='", DestFolder, "', owner='", DestOwner, "', type='", TypeAfterMoved, "' where id='", ID, "';"]),
+                                                        {AfterType, AfterDepartmentID} = case DestType of
+                                                                                             ?TYPE_PUBLIC -> {?TYPE_PUB_SUB, <<"-1">>};
+                                                                                             ?TYPE_DEPARTMENT -> {?TYPE_DEP_SUB, DepartmentID}
+                                                                                         end,
+                                                        {updated, 1} = ejabberd_odbc:sql_query_t( ["update folder set parent='", DestFolder, "', owner='", DestOwner,
+                                                            "', type='", AfterType, "', department_id='", AfterDepartmentID, "' where id='", ID, "';"]),
+                                                        if
+                                                            (ParentType =:= ?TYPE_PERSON) and (SelfType =:= ?TYPE_PER_SHARE) ->
+                                                                ejabberd_odbc:sql_query_t(["delete from share_users where folder='", ID, "';"]);
+                                                            true ->
+                                                                nothint_to_do
+                                                        end,
                                                         ok;
                                                     _ ->
                                                         folder_exist
