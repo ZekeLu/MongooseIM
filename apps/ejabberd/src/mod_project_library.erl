@@ -119,6 +119,26 @@ process_iq(_, _, IQ) ->
 delete_member(LServer, DeleteJID, Project, Job) ->
     clear_trash_ex(LServer, DeleteJID, Project),
 
+    %% delete deletejid from share folder, except his own share folder.
+   [{folder, Query}] = folder_sql_query(LServer, ?TYPE_SHARE, DeleteJID, Job, <<"-2">>, Project, false, false),
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        {selected, _, ShareToMeFolderList} ->
+            FolderList = [ {FolderID} || {FolderID, _, _, _, _, _, _} <- ShareToMeFolderList],
+            DeleteFolder =
+                lists:foldl(fun({Folder}, AccIn) ->
+                    AccIn1 = case AccIn of
+                                 <<>> -> <<>>;
+                                 _ -> <<AccIn/binary, ",">>
+                             end,
+                    <<AccIn1/binary, "'", Folder/binary, "'">>
+                end,
+                    <<>>,
+                    FolderList),
+            DelateQuery = ["delete from share_users where folder in (", DeleteFolder, ") and userjid='", DeleteJID, "';"],
+            ejabberd_odbc:sql_query(LServer, DelateQuery);
+        _ ->
+            ok
+    end,
     %% update department folder's owner.
     case ejabberd_odbc:sql_query(LServer, ["select o1.id, o1.department_id from organization as o1, organization as o2 where o1.project='", Project, "' and o2.project='", Project,
         "' and o2.id='", Job, "' and o1.department_id =o2.department_id order by o1.lft limit 1;"]) of
