@@ -378,11 +378,12 @@ set_photo(LServer, ProID, Photo) ->
 
 -spec get_project(binary(), binary()) -> {ok, #project{}} | {error, _}.
 get_project(LServer, Project) ->
-    Query = ["select id, name, description, photo, status, admin, start_at, end_at, job_tag, member_tag, link_tag from project where id='", Project, "';"],
+    Query = ["select id, name, description, photo, status, admin, start_at, end_at, job_tag, member_tag, link_tag, work_url ",
+        " from project where id='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, _, [{ID, Name, Description, Photo, Status, Admin, StartAt, EndAt, JobTag, MemberTag, LinkTag}]} ->
+        {selected, _, [{ID, Name, Description, Photo, Status, Admin, StartAt, EndAt, JobTag, MemberTag, LinkTag, WorkUrl}]} ->
             {ok, #project{id=ID, name=Name, description = Description, photo = Photo, status = Status, admin = Admin,
-            start_at = StartAt, end_at = EndAt, job_tag = JobTag, member_tag = MemberTag, link_tag = LinkTag}};
+            start_at = StartAt, end_at = EndAt, job_tag = JobTag, member_tag = MemberTag, link_tag = LinkTag, work_url = WorkUrl}};
         {selected, _, []} ->
             {ok, #project{}};
         Reason ->

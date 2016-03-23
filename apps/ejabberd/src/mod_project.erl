@@ -74,6 +74,8 @@ process_iq(From, To, #iq{xmlns = ?NS_AFT_PROJECT, sub_el = SubEl} = IQ) ->
             get_task_member(From, To, IQ);
         <<"get_task">> ->
             get_task(From, To, IQ);
+        <<"get_work_url">> ->
+            get_work_url(From, To, IQ);
         _ ->
             IQ#iq{type = error, sub_el = [?ERR_BAD_REQUEST]}
     end;
@@ -490,7 +492,6 @@ get_task_member(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
 get_task_member(_, _, IQ) ->
     IQ#iq{type = error, sub_el = [?ERR_BAD_REQUEST]}.
 
-
 get_task(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
     #jid{user = U, server = S} = From,
     BareJID = <<U/binary, "@", S/binary>>,
@@ -511,8 +512,22 @@ get_task(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
 get_task(_, _, IQ) ->
     IQ#iq{type = error, sub_el = [?ERR_BAD_REQUEST]}.
 
+get_work_url(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
+    #jid{user = U, server = S} = From,
+    BareJID = <<U/binary, "@", S/binary>>,
+    {struct, Data} = mochijson2:decode(xml:get_tag_cdata(SubEl)),
+    {_, Project} = lists:keyfind(<<"project">>, 1, Data),
+    {_, SelfJobID} = lists:keyfind(<<"self_job_id">>, 1, Data),
 
-
+    case get_work_url_ex(S, Project, BareJID, SelfJobID) of
+        {error, Error} ->
+            IQ#iq{type = error, sub_el = [SubEl, Error]};
+        {ok, Result} ->
+            IQ#iq{type = result,
+                sub_el = [SubEl#xmlel{children = [{xmlcdata, Result}]}]}
+    end;
+get_work_url(_, _, IQ) ->
+    IQ#iq{type = error, sub_el = [?ERR_BAD_REQUEST]}.
 
 %% ------------------------------------------------------------------
 %% lower function. called by higher function, bridge between odbc and higher function.
@@ -1032,6 +1047,38 @@ get_task_ex(LServer, Project, BareJID, SelfJobID, JID, TargetJobID, Page) ->
                     end,
             {ok, iolist_to_binary(F({struct, [{<<"project">>, Project}, {<<"job_id">>, TargetJobID},
                 {<<"jid">>, JID}, {<<"task">>, Tasks}]}) )};
+        false ->
+            {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
+    end.
+
+
+get_work_url_ex(LServer, Project, BareJID, SelfJobID) ->
+    case odbc_organization:is_member(LServer, Project, BareJID, SelfJobID) of
+        true ->
+            case odbc_organization:get_project(LServer, Project) of
+                {ok, #project{work_url = undefined}} ->
+                    {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH};
+                {ok, #project{work_url = WorkUrl}} ->
+                    WorkUrl1 =
+                    case string:right(binary_to_list(WorkUrl), 1) of
+                        "/" -> list_to_binary( string:sub_string(WorkUrl, 1, string:len(WorkUrl) - 1) );
+                        _ -> WorkUrl
+                    end,
+
+                    {ok, PrivateKeyPath} = application:get_env(ejabberd, work_private_cert_file),
+                    {ok, Content} = file:read_file(PrivateKeyPath),
+                    [RSAEntry] = public_key:pem_decode(Content),
+                    PrivateKey = public_key:pem_entry_decode(RSAEntry),
+
+                    {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:universal_time(),
+                    UTC = list_to_binary(io_lib:format("~4..0w-~2..0w-~2..0wT~2..0w:~2..0w:~2..0wZ",
+                        [Year, Month, Day, Hour, Minute, Second])),
+                    HashStr = crypto:hash(sha, <<"Kissnapp", WorkUrl1/binary, UTC/binary>>),
+                    SignStr =  public_key:encrypt_private(<<UTC/binary, HashStr/binary>>, PrivateKey),
+                    Token = base64:encode(SignStr),
+                    Result = <<WorkUrl1/binary, "?token=", Token/binary>>,
+                    {ok, <<"{\"project\":\"", Project/binary, "\", \"url\":\"", Result/binary, "\"}">>}
+            end;
         false ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.

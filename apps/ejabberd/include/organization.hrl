@@ -50,7 +50,8 @@
     end_at :: binary() | undefined,
     job_tag :: binary() | undefined,
     member_tag :: binary() | undefined,
-    link_tag :: binary() | undefined
+    link_tag :: binary() | undefined,
+    work_url :: binary() | undefined
 }).
 
 %% define group type
