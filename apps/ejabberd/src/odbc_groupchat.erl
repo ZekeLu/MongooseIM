@@ -19,6 +19,7 @@
     is_user_in_group/3,
     is_user_own_group/3,
     is_in_project/3,
+    is_task_project_member/3,
     set_groupname/3,
     set_avatar/3,
     set_nickname_in_group/4,
@@ -414,6 +415,19 @@ is_in_project(LServer, JidList, Project) ->
             end;
         Reason ->
             {error, Reason}
+    end.
+
+%% check JID is in groupid's project or not.
+-spec is_task_project_member(binary(), binary(), binary()) -> true | false.
+is_task_project_member(LServer, GroupID, JID) ->
+    Query = ["select count(ou.id) from organization_user as ou join organization as o on o.id = ou.organization "
+        " and ou.jid='", JID, "' join groupinfo as gi on o.project=gi.project and gi.type='", ?TASK_GROUP,
+        "' and gi.groupid='", GroupID, "';"],
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        {selected, _, <<"1">>} ->
+            true;
+        _ ->
+            false
     end.
 
 

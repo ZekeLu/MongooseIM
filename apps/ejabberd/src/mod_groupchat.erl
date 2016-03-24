@@ -84,7 +84,11 @@ get_members(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = Su
                    <<>> -> ?PAGESIZE;
                    P -> P
                end,
-    case odbc_groupchat:is_user_in_group(LServer, UserJid, GroupId) of
+    Permission = case odbc_groupchat:is_user_in_group(LServer, UserJid, GroupId) of
+                     true -> true;
+                     _ -> odbc_groupchat:is_task_project_member(LServer, GroupId, UserJid)
+                end,
+    case Permission of
         true ->
             case odbc_groupchat:get_members_by_groupid(LServer, GroupId, SinceId, PageSize) of
                 {ok, MembersInfoList} ->
