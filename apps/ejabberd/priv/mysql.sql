@@ -424,7 +424,7 @@ CREATE TABLE project(
     job_tag varchar(30) NOT NULL,
     member_tag varchar(30) NOT NULL,
     link_tag varchar(30) NOT NULL,
-    work_url varchar(250) CHARACTER SET binary  DEFAULT NULL,
+    work_url varchar(250) CHARACTER SET binary  DEFAULT NULL
 ) CHARACTER SET utf8;
 
 CREATE TABLE project_link (
