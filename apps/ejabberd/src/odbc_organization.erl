@@ -542,7 +542,7 @@ is_child(LServer, Project, Job1, Job2) ->
     end.
 
 get_task(LServer, Project, JID, StartLine, Count) ->
-    Query =["select name, owner, created_at, joined_at from groupuser as gu join groupinfo as gi on ",
+    Query =["select gi.groupid, gi.name, gi.owner, gi.created_at, gu.joined_at from groupuser as gu join groupinfo as gi on ",
         "gi.groupid=gu.groupid and gi.type=2 and gi.project='", Project, "' and gi.status=1 where gu.jid='",
         JID, "' order by gu.joined_at desc limit ", StartLine, ",", Count, ";"],
     case ejabberd_odbc:sql_query(LServer, Query) of

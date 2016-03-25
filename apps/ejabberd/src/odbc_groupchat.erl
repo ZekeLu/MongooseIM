@@ -424,7 +424,7 @@ is_task_project_member(LServer, GroupID, JID) ->
         " and ou.jid='", JID, "' join groupinfo as gi on o.project=gi.project and gi.type='", ?TASK_GROUP,
         "' and gi.groupid='", GroupID, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, _, <<"1">>} ->
+        {selected, _, [{<<"1">>}]} ->
             true;
         _ ->
             false

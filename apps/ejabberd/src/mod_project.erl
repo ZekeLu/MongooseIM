@@ -501,8 +501,9 @@ get_task(From, _To, #iq{type = get, sub_el = SubEl} = IQ) ->
     {_, TargetJobID} = lists:keyfind(<<"job_id">>, 1, Data),
     {_, JID} = lists:keyfind(<<"jid">>, 1, Data),
     {_, Page} = lists:keyfind(<<"page">>, 1, Data),
+    {_, Count} = lists:keyfind(<<"count">>, 1, Data),
 
-    case get_task_ex(S, Project, BareJID, SelfJobID, JID, TargetJobID, Page) of
+    case get_task_ex(S, Project, BareJID, SelfJobID, JID, TargetJobID, Page, Count) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result} ->
@@ -1033,15 +1034,16 @@ get_task_member_ex(LServer, Project, BareJID, JobID) ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
     end.
 
-get_task_ex(LServer, Project, BareJID, SelfJobID, JID, TargetJobID, Page) ->
+get_task_ex(LServer, Project, BareJID, SelfJobID, JID, TargetJobID, Page, Count) ->
+    PageCount = if Count =:= false -> ?TASK_PAGE_ITEM_COUNT; true -> Count end,
     case odbc_organization:is_member(LServer, Project, BareJID, SelfJobID) of
         true ->
-            StartLine = integer_to_binary((binary_to_integer(Page) - 1) * binary_to_integer(?TASK_PAGE_ITEM_COUNT)),
+            StartLine = integer_to_binary((binary_to_integer(Page) - 1) * binary_to_integer(PageCount)),
             F = mochijson2:encoder([{utf8, true}]),
-            Tasks = case odbc_organization:get_task(LServer, Project, JID, StartLine, ?TASK_PAGE_ITEM_COUNT) of
+            Tasks = case odbc_organization:get_task(LServer, Project, JID, StartLine, PageCount) of
                         {ok, Result} ->
-                            [{struct, [{<<"title">>, R1}, {<<"created_at">>, R2}, {<<"owner">>, R3}, {<<"joined_at">>, R4}]}
-                                || {R1, R2, R3, R4} <- Result];
+                            [{struct, [{<<"group_id">>, R1}, {<<"title">>, R2}, {<<"owner">>, R3}, {<<"created_at">>, R4}, {<<"joined_at">>, R5}]}
+                                || {R1, R2, R3, R4, R5} <- Result];
                         _ ->
                             []
                     end,
