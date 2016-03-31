@@ -214,9 +214,9 @@ set_photo(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     case set_photo_ex(S, ProID, BareJID, Photo) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
-        ok ->
+        {ok, PhotoUUID} ->
             F = mochijson2:encoder([{utf8, true}]),
-            Content = iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"photo">>, photo_url(Photo)}]})),
+            Content = iolist_to_binary(F({struct, [{<<"project">>, ProID}, {<<"photo">>, photo_url(PhotoUUID)}]})),
             {ok, Result} = odbc_organization:get_all(S, ProID, ["jid"]),
             push_message(ProID, S, Result, <<"set_photo">>, Content),
             IQ#iq{type = result}
@@ -972,9 +972,14 @@ delete_member_ex(LServer, ProID, BareJID, SelfJob, JID, Job) ->
 set_photo_ex(LServer, ProID, BareJID, Photo) ->
     case is_admin(LServer, BareJID, ProID) of
         true ->
-            case odbc_organization:set_photo(LServer, ProID, Photo) of
-                ok -> ok;
-                _ -> {error, ?ERR_INTERNAL_SERVER_ERROR}
+            case ejabberd_odbc:sql_query(LServer, ["select uid, type from mms_file where id='", Photo, "'"]) of
+                {selected,_,[{PhotoUUID, <<"1">>}]} ->
+                    case odbc_organization:set_photo(LServer, ProID, PhotoUUID) of
+                        ok -> {ok, PhotoUUID};
+                        _ -> {error, ?ERR_INTERNAL_SERVER_ERROR}
+                    end;
+                _ ->
+                    {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}
             end;
         false ->
             {error, ?AFT_ERR_PRIVILEGE_NOT_ENOUGH}

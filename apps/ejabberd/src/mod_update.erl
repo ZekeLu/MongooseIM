@@ -9,9 +9,10 @@
     rest_terminate/2]).
 
 -export([allowed_methods/2,
-    content_types_provided/2]).
+    content_types_provided/2,
+    content_types_accepted/2]).
 
--export([to_json/2]).
+-export([to_json/2, from_json/2]).
 
 -record(state, {handler, opts, bindings}).
 
@@ -28,11 +29,15 @@ rest_terminate(_Req, _State) ->
      ok.
 
 allowed_methods(Req, State) ->
-    {[<<"GET">>], Req, State}.
+    {[<<"GET">>, <<"POST">>], Req, State}.
 
 content_types_provided(Req, State) ->
     CTP = [{{<<"application">>, <<"json">>, '*'}, to_json}],
     {CTP, Req, State}.
+
+content_types_accepted(Req, State) ->
+    CTA = [{{<<"application">>, <<"json">>, '*'}, from_json}],
+    {CTA, Req, State}.
 
 
 %%--------------------------------------------------------------------
@@ -40,6 +45,12 @@ content_types_provided(Req, State) ->
 %%--------------------------------------------------------------------
 to_json(Req, State) ->
     handle_get(mongoose_api_json, Req, State).
+
+%%--------------------------------------------------------------------
+%% content_types_accepted/2 callbacks
+%%--------------------------------------------------------------------
+from_json(Req, State) ->
+    handle_unsafe(mongoose_api_json, Req, State).
 
 
 %%--------------------------------------------------------------------
@@ -53,6 +64,40 @@ handle_get(_Serializer, Req, State) ->
             Result = get_update(Server, Type),
             {Result, Req, State}
     end.
+
+handle_unsafe(_Deserializer, Req, State) ->
+    case cowboy_req:has_body(Req) of
+        true ->
+            {ok, Body, Req2} = cowboy_req:body(Req, [{length, 2000}]),
+            {struct, Data} = mochijson2:decode(Body),
+            {_, Signature} = lists:keyfind(<<"signature">>, 1, Data),
+            {_, Type} = lists:keyfind(<<"type">>, 1, Data),
+            {_, VersionCode} = lists:keyfind(<<"version_code">>, 1, Data),
+            {_, VersionName} = lists:keyfind(<<"version_name">>, 1, Data),
+            {_, Description} = lists:keyfind(<<"description">>, 1, Data),
+            {_, Timestamp} = lists:keyfind(<<"timestamp">>, 1, Data),
+            SignatureData = base64:decode(Signature),
+            case verify_sign(SignatureData, Type, VersionCode, VersionName, Description, Timestamp) of
+                true ->
+                    %% TOFIX: incomplete.
+                    %% 1. create RSA key. public key keep in server. private key keep in uploader.
+                    %% 2. create table store SignData.
+                    %% 3. check SignData is exist or not, if exist is replay attack, other is ok.
+                    imcomplete;
+                false ->
+                    error_response(bad_request, Req, State)
+            end;
+        false ->
+            error_response(bad_request, Req, State)
+    end.
+
+verify_sign(SignatureData, Type, VersionCode, VersionName, Description, Timestamp) ->
+    Data = <<Type/binary, VersionCode/binary, VersionName/binary, Description/binary, Timestamp/binary>>,
+    {ok, PublicKeyPath} = application:get_env(ejabberd, update_public_key),
+    {ok, Content} = file:read_file(PublicKeyPath),
+    [RSAEntry] = public_key:pem_decode(Content),
+    PublicKey = public_key:pem_entry_decode(RSAEntry),
+    public_key:verify(Data, sha, SignatureData, PublicKey).
 
 %%--------------------------------------------------------------------
 %% Error responses
