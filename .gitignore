@@ -89,3 +89,5 @@ ebin/
 #idea
 .idea/
 *.iml
+
+*.d

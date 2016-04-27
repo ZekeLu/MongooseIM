@@ -12,7 +12,6 @@
 
 -include("ejabberd.hrl").
 -include("jlib.hrl").
--include("organization.hrl").
 
 -define(NS_CAMERA, <<"aft:camera">>).
 
