@@ -537,3 +537,14 @@ CREATE TABLE version_update(
     url varchar(1024) NOT NULL,
     description blob NOT NULL
 ) CHARACTER SET utf8;
+
+
+CREATE TABLE camera(
+    id int PRIMARY KEY NOT NULL auto_increment,
+    project_id int NOT NULL,
+    ip varchar(50) NOT NULL,
+    port varchar(50) NOT NULL,
+    username varchar(50) NOT NULL,
+    password varchar(50) NOT NULL,
+    description text
+) CHARACTER SET utf8;

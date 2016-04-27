@@ -1,6 +1,6 @@
 %% ====================================================================================
 %% generate authorize token for bo site
-%% doc here: https://github.com/ZekeLu/MongooseIM/wiki/Extending-XMPP#
+%% doc here: https://github.com/ZekeLu/MongooseIM/wiki/Extending-XMPP#bo-authorize
 %%
 %% ====================================================================================
 
@@ -35,7 +35,7 @@ process_iq(From, To, #iq{xmlns = ?NS_BO_AUTHORIZE, type = _Type, sub_el = SubEl}
     case SubEl of
         #xmlel{name = <<"query">>} ->
             case xml:get_tag_attr_s(<<"query_type">>, SubEl) of
-                <<"list">> ->
+                <<"get">> ->
                     get_token(From, To, IQ);
                 _ ->
                     IQ#iq{type = error, sub_el = [SubEl, ?ERR_BAD_REQUEST]}
@@ -51,10 +51,12 @@ process_iq(_, _, IQ) ->
 
 get_token(#jid{luser = LUser, lserver = LServer} = _From, _To, #iq{sub_el = SubEl} = IQ) ->
     UserJid = jlib:jid_to_binary({LUser, LServer, <<>>}),
-    Expire = generate_expiration(),
+    Expire = integer_to_binary(generate_expiration()),
     S = list_to_binary(mod_mms_s3:secret()), %% use the same secret as mms
-    Token = generate_token(UserJid, Expire, S),
+    Token = list_to_binary(generate_token(UserJid, Expire, S)),
+    io:format("~p~n", [Token]),
     Res = mochijson2:encode({struct, record_to_json(#token{token = Token, expired = Expire})}),
+    io:format("~p~n",[Res]),
     IQ#iq{type = result, sub_el = [SubEl#xmlel{children = [{xmlcdata, iolist_to_binary(Res)}]}]}.
 
 

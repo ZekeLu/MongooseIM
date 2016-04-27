@@ -1,6 +1,6 @@
 %% ====================================================================================
 %% camera module
-%% doc here: https://github.com/ZekeLu/MongooseIM/wiki/Extending-XMPP#
+%% doc here: https://github.com/ZekeLu/MongooseIM/wiki/Extending-XMPP#camera
 %%
 %% ====================================================================================
 
@@ -55,10 +55,10 @@ process_iq(_, _, IQ) ->
 
 
 %% @doc get camera list by project id
-%% https://github.com/ZekeLu/MongooseIM/wiki/Extending-XMPP
+%% https://github.com/ZekeLu/MongooseIM/wiki/Extending-XMPP#camera
 list_camera(#jid{lserver = LServer} = _From, _To, #iq{sub_el = SubEl} = IQ) ->
     ProjectId = xml:get_tag_attr_s(<<"project">>, SubEl),
-    CameraList = get_camera_list(LServer,ProjectId),
+    CameraList = get_camera_list(LServer, ProjectId),
     IQ#iq{type = result, sub_el = [SubEl#xmlel{children = [{xmlcdata, CameraList}]}]}.
 
 %% =====================================
@@ -66,10 +66,18 @@ list_camera(#jid{lserver = LServer} = _From, _To, #iq{sub_el = SubEl} = IQ) ->
 %% ====================================
 
 get_camera_list(LServer, ProjectId) ->
-    Query = [<<"select * from camera where project_id=">>, ProjectId],
+    Query = [<<"select id,ip,port,username,password,description from camera where project_id=">>, ProjectId],
     case ejabberd_odbc:sql_query(LServer, Query) of
         {selected, _, R} ->
-            JsonArray = [{struct, record_to_json(Camera)} || Camera <- R],
+            JsonArray = [{struct, record_to_json(#camera{
+                id = Id,
+                project_id = ProjectId,
+                ip = Ip,
+                port = Port,
+                username = UserName,
+                password = Password,
+                description = Description
+            })} || {Id, Ip, Port, UserName, Password, Description} <- R],
             iolist_to_binary(mochijson2:encode(JsonArray))
     end.
 
