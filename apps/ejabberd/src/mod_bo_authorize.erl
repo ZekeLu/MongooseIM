@@ -78,7 +78,7 @@ stamp_now() ->
 
 -spec md5(string() | binary()) -> string().
 md5(Text) ->
-    lists:flatten([io_lib:format("~.16b", [N]) || N <- binary_to_list(erlang:md5(Text))]).
+    lists:flatten([io_lib:format("~2.16.0b", [B]) || <<B>> <= erlang:md5(Text)]).
 
 record_to_json(Token) ->
     [_ | L] = tuple_to_list(Token),
