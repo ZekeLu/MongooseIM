@@ -49,6 +49,8 @@ secret() ->
 -spec bucket(binary()) -> binary() | undefined.
 bucket(?AVATAR) ->
     ?ENV(s3_public_bucket);
+bucket(?PROJECT) ->
+    ?ENV(s3_public_bucket);
 bucket(_) ->
     ?ENV(s3_bucket).
 

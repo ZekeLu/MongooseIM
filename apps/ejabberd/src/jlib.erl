@@ -1162,8 +1162,7 @@ random_code(Length) ->
         I1 = random:uniform(10),
         I2 = I1 + 47, % 48 ~ 56,
         [I2 | Acc]
-    end, [], lists:seq(1, Length)),
-    "666666". %% TOFIX delete this line when sms is ok.
+    end, [], lists:seq(1, Length)).
 
 
 %% -----------------------------------------

@@ -14,12 +14,12 @@
 
 %% gen_mod callbacks
 -export([start/2,
-         stop/1,
-         clean_opts/1]).
+    stop/1,
+    clean_opts/1]).
 
 %% hooks
 -export([stream_feature_register/2,
-         unauthenticated_iq_register/4]).
+    unauthenticated_iq_register/4]).
 
 %% iq handler
 -export([process_iq/3, process_iq2/3]).
@@ -32,34 +32,34 @@
 %%% gen_mod callbacks
 %%%===================================================================
 
-                                                % process_iq: handle change password iq.
-                                                % process_iq2: handle all other our custom iq.
-                                                % unauthenticated_iq_register: handle our custom unauthenticated iq
+% process_iq: handle change password iq.
+% process_iq2: handle all other our custom iq.
+% unauthenticated_iq_register: handle our custom unauthenticated iq
 
 start(Host, Opts) ->
     IQDisc = gen_mod:get_opt(iqdisc, Opts, one_queue),
     gen_iq_handler:add_iq_handler(ejabberd_sm, Host, ?NS_AFT_INFORMATION,
-                                  ?MODULE, process_iq2, no_queue),
+        ?MODULE, process_iq2, no_queue),
     gen_iq_handler:add_iq_handler(ejabberd_local, Host, ?NS_AFT_REGISTER,
-                                  ?MODULE, process_iq, IQDisc),
+        ?MODULE, process_iq, IQDisc),
     gen_iq_handler:add_iq_handler(ejabberd_sm, Host, ?NS_AFT_REGISTER,
-                                  ?MODULE, process_iq, IQDisc),
+        ?MODULE, process_iq, IQDisc),
     ejabberd_hooks:add(c2s_stream_features, Host,
-                       ?MODULE, stream_feature_register, 50),
+        ?MODULE, stream_feature_register, 50),
     ejabberd_hooks:add(c2s_unauthenticated_iq, Host,
-                       ?MODULE, unauthenticated_iq_register, 50),
+        ?MODULE, unauthenticated_iq_register, 50),
     mnesia:create_table(mod_register_aft_ip,
-                        [{ram_copies, [node()]},
-                         {local_content, true},
-                         {attributes, [key, value]}]),
+        [{ram_copies, [node()]},
+            {local_content, true},
+            {attributes, [key, value]}]),
     mnesia:add_table_copy(mod_register_aft_ip, node(), ram_copies),
     ok.
 
 stop(Host) ->
     ejabberd_hooks:delete(c2s_stream_features, Host,
-                          ?MODULE, stream_feature_register, 50),
+        ?MODULE, stream_feature_register, 50),
     ejabberd_hooks:delete(c2s_unauthenticated_iq, Host,
-                          ?MODULE, unauthenticated_iq_register, 50),
+        ?MODULE, unauthenticated_iq_register, 50),
     gen_iq_handler:remove_iq_handler(ejabberd_local, Host, ?NS_AFT_REGISTER),
     gen_iq_handler:remove_iq_handler(ejabberd_sm, Host, ?NS_AFT_REGISTER),
     gen_iq_handler:remove_iq_handler(ejabberd_sm, Host, ?NS_AFT_INFORMATION).
@@ -79,18 +79,18 @@ clean_opt(Item) ->
 
 stream_feature_register(Acc, _Host) ->
     [#xmlel{name = <<"aft-register">>,
-            attrs = [{<<"xmlns">>, ?NS_AFT_FEATURE_IQREGISTER}]} | Acc].
+        attrs = [{<<"xmlns">>, ?NS_AFT_FEATURE_IQREGISTER}]} | Acc].
 
 unauthenticated_iq_register(_Acc,
-                            Server, #iq{xmlns = ?NS_AFT_REGISTER} = IQ, IP) ->
+    Server, #iq{xmlns = ?NS_AFT_REGISTER} = IQ, IP) ->
     Address = case IP of
                   {A, _Port} -> A;
                   _ -> undefined
               end,
     ResIQ = process_unauthenticated_iq(Server, IQ, Address),
     Res1 = jlib:replace_from_to(jlib:make_jid(<<>>, Server, <<>>),
-                                jlib:make_jid(<<>>, <<>>, <<>>),
-                                jlib:iq_to_xml(ResIQ)),
+        jlib:make_jid(<<>>, <<>>, <<>>),
+        jlib:iq_to_xml(ResIQ)),
     jlib:remove_attr(<<"to">>, Res1);
 unauthenticated_iq_register(Acc, _Server, _IQ, _IP) ->
     Acc.
@@ -100,8 +100,8 @@ unauthenticated_iq_register(Acc, _Server, _IQ, _IP) ->
 %%%===================================================================
 
 process_iq2(#jid{user = User, lserver = Server, lresource = _Resource} = _From,
-            #jid{lserver = Server} = _To,
-            #iq{type = _Type, lang = _Lang1, sub_el = SubEl} = IQ) ->
+    #jid{lserver = Server} = _To,
+    #iq{type = _Type, lang = _Lang1, sub_el = SubEl} = IQ) ->
     PasswordTag = xml:get_subtag(SubEl, <<"password">>),
     TokenTag = xml:get_subtag(SubEl, <<"token">>),
     CodeTag = xml:get_subtag(SubEl, <<"code">>),
@@ -116,45 +116,45 @@ process_iq2(#jid{user = User, lserver = Server, lresource = _Resource} = _From,
             case varify_password(User, Server, xml:get_tag_cdata(PasswordTag)) of
                 {error, Error} ->
                     IQ#iq{type = error,
-                          sub_el = [SubEl, Error]};
+                        sub_el = [SubEl, Error]};
                 {ok, Result} ->
                     IQ#iq{type = result,
-                          sub_el = [#xmlel{name = <<"query">>,
-                                           attrs = [{<<"xmlns">>, ?NS_AFT_INFORMATION},
-                                                    {<<"subtype">>, <<"verify_password">>}],
-                                           children = [#xmlel{name = <<"token">>,
-                                                              children = [#xmlcdata{content = Result}]}]}]}
+                        sub_el = [#xmlel{name = <<"query">>,
+                            attrs = [{<<"xmlns">>, ?NS_AFT_INFORMATION},
+                                {<<"subtype">>, <<"verify_password">>}],
+                            children = [#xmlel{name = <<"token">>,
+                                children = [#xmlcdata{content = Result}]}]}]}
 
             end;
         {ok, <<"get_code">>} ->
             case change_phone(User, Server, xml:get_tag_cdata(PhoneTag),
-                              xml:get_tag_cdata(TokenTag)) of
+                xml:get_tag_cdata(TokenTag)) of
                 {error, Error} ->
                     IQ#iq{type = error, sub_el = [SubEl, Error]};
                 {ok, Result} ->
                     IQ#iq{type = result,
-                          sub_el = [#xmlel{name = <<"query">>,
-                                           attrs = [{<<"xmlns">>, ?NS_AFT_INFORMATION},
-                                                    {<<"subtype">>, <<"get_code">>}],
-                                           children = [#xmlel{name = <<"phone">>,
-                                                              children = [#xmlcdata{content = Result}]}]}]}
+                        sub_el = [#xmlel{name = <<"query">>,
+                            attrs = [{<<"xmlns">>, ?NS_AFT_INFORMATION},
+                                {<<"subtype">>, <<"get_code">>}],
+                            children = [#xmlel{name = <<"phone">>,
+                                children = [#xmlcdata{content = Result}]}]}]}
             end;
         {ok, <<"verify_code">>} ->
             case verify_change_phone(User, Server, xml:get_tag_cdata(PhoneTag),
-                                     xml:get_tag_cdata(CodeTag)) of
+                xml:get_tag_cdata(CodeTag)) of
                 {error, Error} ->
                     IQ#iq{type = error, sub_el = [SubEl, Error]};
                 {ok, Result} ->
                     IQ#iq{type = result,
-                          sub_el = [#xmlel{name = <<"query">>,
-                                           attrs = [{<<"xmlns">>, ?NS_AFT_INFORMATION},
-                                                    {<<"subtype">>, <<"verify_code">>}],
-                                           children = [#xmlel{name = <<"phone">>,
-                                                              children = [#xmlcdata{content = Result}]}]}]}
+                        sub_el = [#xmlel{name = <<"query">>,
+                            attrs = [{<<"xmlns">>, ?NS_AFT_INFORMATION},
+                                {<<"subtype">>, <<"verify_code">>}],
+                            children = [#xmlel{name = <<"phone">>,
+                                children = [#xmlcdata{content = Result}]}]}]}
             end;
         {ok, <<"invite">>} ->
             case invite(User, Server, xml:get_tag_cdata(PhoneTag),
-                        xml:get_tag_cdata(Type)) of
+                xml:get_tag_cdata(Type)) of
                 {error, Error} ->
                     IQ#iq{type = error, sub_el = [SubEl, Error]};
                 ok ->
@@ -167,8 +167,8 @@ process_iq2(_From, _To, #iq{sub_el = SubEl} = IQ) ->
     IQ#iq{type = error, sub_el = [SubEl, ?ERR_BAD_REQUEST]}.
 
 process_iq(#jid{user = User, lserver = Server, lresource = Resource} = _From,
-           #jid{lserver = Server} = _To,
-           #iq{type = set, lang = Lang1, sub_el = SubEl} = IQ) ->
+    #jid{lserver = Server} = _To,
+    #iq{type = set, lang = Lang1, sub_el = SubEl} = IQ) ->
     Lang = binary_to_list(Lang1),
     RemoveTag = xml:get_subtag(SubEl, <<"remove">>),
     OldPasswordTag = xml:get_subtag(SubEl, <<"old_password">>),
@@ -178,14 +178,14 @@ process_iq(#jid{user = User, lserver = Server, lresource = Resource} = _From,
         (RemoveTag /= false) and (OldPasswordTag =:= false) and (PasswordTag =:= false) ->
             ResIQ = IQ#iq{type = result, sub_el = [SubEl]},
             ejabberd_router:route(
-              jlib:make_jid(User, Server, Resource),
-              jlib:make_jid(User, Server, Resource),
-              jlib:iq_to_xml(ResIQ)),
+                jlib:make_jid(User, Server, Resource),
+                jlib:make_jid(User, Server, Resource),
+                jlib:iq_to_xml(ResIQ)),
             ejabberd_auth:remove_user(User, Server),
             ignore;
         (RemoveTag =:= false) and (OldPasswordTag /= false) and (PasswordTag /= false) ->
             try_set_password(User, Server, xml:get_tag_cdata(OldPasswordTag),
-                             xml:get_tag_cdata(PasswordTag), IQ, SubEl, Lang);
+                xml:get_tag_cdata(PasswordTag), IQ, SubEl, Lang);
         true ->
             IQ#iq{type = error, sub_el = [SubEl, ?ERR_BAD_REQUEST]}
     end;
@@ -203,7 +203,7 @@ check_do_what(SubType, PhoneTag, CodeTag, NickTag, PasswordTag, TokenTag) ->
             if
                 Phone /= false ->
                     {ok, <<"reg_get_code">>};
-               true ->
+                true ->
                     {error, bad_request}
             end;
         {{value, <<"find_get_code">>}, Phone, false, false, false, false} ->
@@ -215,23 +215,23 @@ check_do_what(SubType, PhoneTag, CodeTag, NickTag, PasswordTag, TokenTag) ->
             end;
         {{value, <<"register">>}, Phone, Code, Nick, false, false} ->
             if
-                (Phone /= false) and (Code /= false) and (Nick /= false)  ->
+                (Phone /= false) and (Code /= false) and (Nick /= false) ->
                     {ok, <<"register">>};
-               true ->
+                true ->
                     {error, bad_request}
             end;
         {{value, <<"find">>}, Phone, Code, false, false, false} ->
             if
-                (Phone /= false) and (Code /= false)  ->
+                (Phone /= false) and (Code /= false) ->
                     {ok, <<"find">>};
-               true ->
+                true ->
                     {error, bad_request}
             end;
         {{value, <<"set_password">>}, false, false, false, Password, Token} ->
             if
                 (Password /= false) and (Token /= false) ->
                     {ok, <<"set_password">>};
-               true ->
+                true ->
                     {error, bad_request}
             end;
         _ ->
@@ -239,8 +239,8 @@ check_do_what(SubType, PhoneTag, CodeTag, NickTag, PasswordTag, TokenTag) ->
     end.
 
 process_unauthenticated_iq(Server,
-                           #iq{ lang = Lang1, sub_el = SubEl} = IQ,
-                           IpAddress) ->
+    #iq{lang = Lang1, sub_el = SubEl} = IQ,
+    IpAddress) ->
     Lang = binary_to_list(Lang1),
     PhoneTag = xml:get_subtag(SubEl, <<"phone">>),
     CodeTag = xml:get_subtag(SubEl, <<"code">>),
@@ -258,8 +258,8 @@ process_unauthenticated_iq(Server,
                 {info, _} ->
                     IQ#iq{type = error, sub_el = [SubEl, ?AFT_ERR_PHONE_EXIST]};
                 not_exist ->
-                    %%case get_code(Phone, 600, 60, <<"code_">>, <<"74663">>) of
-                    case get_code(Phone, 600, 60, <<"code_">>) of
+                    RegisterTemplate = list_to_binary(get_sms_config(sms_template_register)),
+                    case get_code(Phone, 600, 60, <<"code_">>, RegisterTemplate) of
                         {ok, _Code} ->
                             IQ#iq{type = result,
                                 sub_el = [#xmlel{name = <<"query">>,
@@ -277,8 +277,8 @@ process_unauthenticated_iq(Server,
             Phone = get_tag_cdata(PhoneTag),
             case ejabberd_auth_odbc:user_info(Server, Phone) of
                 {info, _} ->
-                    %%case get_code(Phone, 600, 60, <<"code_">>, <<"74663">>) of
-                    case get_code(Phone, 600, 60, <<"code_">>) of
+                    RegisterTemplate = list_to_binary(get_sms_config(sms_template_register)),
+                    case get_code(Phone, 600, 60, <<"code_">>, RegisterTemplate) of
                         {ok, Code} ->
                             IQ#iq{type = result,
                                 sub_el = [#xmlel{name = <<"query">>,
@@ -298,55 +298,55 @@ process_unauthenticated_iq(Server,
             end;
         {ok, <<"register">>} ->
             case try_register(get_tag_cdata(PhoneTag),
-                              get_tag_cdata(NickTag),
-                              get_tag_cdata(CodeTag),
-                              Server, Lang, IpAddress) of
+                get_tag_cdata(NickTag),
+                get_tag_cdata(CodeTag),
+                Server, Lang, IpAddress) of
                 {ok, {Phone, Token}} ->
                     IQ#iq{type = result,
-                          sub_el = [#xmlel{name = <<"query">>,
-                                           attrs = [{<<"xmlns">>, <<"aft:register">>},
-                                                    {<<"subtype">>, <<"register">>}],
-                                           children = [#xmlel{name = <<"phone">>,
-                                                              children = [#xmlcdata{content = Phone}]},
-                                                       #xmlel{name = <<"token">>,
-                                                              children = [#xmlcdata{content = Token}]}]}]};
+                        sub_el = [#xmlel{name = <<"query">>,
+                            attrs = [{<<"xmlns">>, <<"aft:register">>},
+                                {<<"subtype">>, <<"register">>}],
+                            children = [#xmlel{name = <<"phone">>,
+                                children = [#xmlcdata{content = Phone}]},
+                                #xmlel{name = <<"token">>,
+                                    children = [#xmlcdata{content = Token}]}]}]};
                 {error, Error} ->
                     IQ#iq{type = error,
-                          sub_el = [SubEl, Error]}
+                        sub_el = [SubEl, Error]}
             end;
         {ok, <<"find">>} ->
             case find(get_tag_cdata(PhoneTag),
-                      get_tag_cdata(CodeTag),
-                      Server, Lang, IpAddress) of
+                get_tag_cdata(CodeTag),
+                Server, Lang, IpAddress) of
                 {ok, {Phone, Token}} ->
                     IQ#iq{type = result,
-                          sub_el = [#xmlel{name = <<"query">>,
-                                           attrs = [{<<"xmlns">>, <<"aft:register">>},
-                                                    {<<"subtype">>, <<"find">>}],
-                                           children = [#xmlel{name = <<"phone">>,
-                                                              children = [#xmlcdata{content = Phone}]},
-                                                       #xmlel{name = <<"token">>,
-                                                              children = [#xmlcdata{content = Token}]}]}]};
+                        sub_el = [#xmlel{name = <<"query">>,
+                            attrs = [{<<"xmlns">>, <<"aft:register">>},
+                                {<<"subtype">>, <<"find">>}],
+                            children = [#xmlel{name = <<"phone">>,
+                                children = [#xmlcdata{content = Phone}]},
+                                #xmlel{name = <<"token">>,
+                                    children = [#xmlcdata{content = Token}]}]}]};
                 {error, Error} ->
                     IQ#iq{type = error,
-                          sub_el = [SubEl, Error]}
+                        sub_el = [SubEl, Error]}
             end;
         {ok, <<"set_password">>} ->
             case try_set_password(get_tag_cdata(TokenTag),
-                                  get_tag_cdata(PasswordTag), Server) of
+                get_tag_cdata(PasswordTag), Server) of
                 {ok, {ok, Phone}} ->
                     Pas = get_tag_cdata(PasswordTag),
                     IQ#iq{type = result,
-                          sub_el = [#xmlel{name = <<"query">>,
-                                           attrs = [{<<"xmlns">>, <<"aft:register">>},
-                                                    {<<"subtype">>, <<"set_password">>}],
-                                           children = [#xmlel{name = <<"phone">>,
-                                                              children = [#xmlcdata{content = Phone}]},
-                                                       #xmlel{name = <<"password">>,
-                                                              children = [#xmlcdata{content = Pas}]}]}]};
+                        sub_el = [#xmlel{name = <<"query">>,
+                            attrs = [{<<"xmlns">>, <<"aft:register">>},
+                                {<<"subtype">>, <<"set_password">>}],
+                            children = [#xmlel{name = <<"phone">>,
+                                children = [#xmlcdata{content = Phone}]},
+                                #xmlel{name = <<"password">>,
+                                    children = [#xmlcdata{content = Pas}]}]}]};
                 {error, Error} ->
                     IQ#iq{type = error,
-                          sub_el = [SubEl, Error]}
+                        sub_el = [SubEl, Error]}
             end
     end.
 
@@ -358,45 +358,45 @@ try_register(Phone, Nick, Code, Server, _Lang, IpAddress) ->
                     {error, ?AFT_ERR_BAD_CODE};
                 [CacheCode] ->
                     if CacheCode =:= Code ->
-                            Temp = generate_token(),
-                            Token = <<"setpwd_", Temp/binary>>,
-                            case ejabberd_auth_odbc:user_info(Server, Phone) of
-                                {error, Error} ->
-                                    ?ERROR_MSG("try_register error=~p~n", [Error]),
-                                    {error, ?ERR_INTERNAL_SERVER_ERROR};
-                                {info, _} ->
-                                    ejabberd_redis:cmd(["DEL", [<<"code_", Phone/binary>>]]),
-                                    {error, ?AFT_ERR_PHONE_EXIST};
-                                not_exist ->
-                                    ejabberd_redis:cmd(["DEL", [<<"code_", Phone/binary>>]]),
-                                    GUID = generate_jid(),
-                                    case check_timeout(IpAddress) of
-                                        true ->
-                                            case ejabberd_auth:aft_try_register(GUID, Server, Phone, Nick) of
-                                                {error, not_allowed} ->
-                                                    remove_timeout(IpAddress),
-                                                    {error, ?AFT_ERR_IP_FORBIDDEN};
-                                                {atomic, exists} ->
-                                                    remove_timeout(IpAddress),
-                                                    {error, ?AFT_ERR_PHONE_EXIST};
-                                                {atomic, ok} ->
-                                                    SurvivalTime = 3600,
-                                                    ejabberd_redis:cmd([["DEL", [Token]],
-                                                                        ["APPEND", [Token], [Phone, <<":">>, GUID]],
-                                                                        ["EXPIRE", [Token], SurvivalTime]]),
-                                                    JID = jlib:make_jid(GUID, Server, <<>>),
+                        Temp = generate_token(),
+                        Token = <<"setpwd_", Temp/binary>>,
+                        case ejabberd_auth_odbc:user_info(Server, Phone) of
+                            {error, Error} ->
+                                ?ERROR_MSG("try_register error=~p~n", [Error]),
+                                {error, ?ERR_INTERNAL_SERVER_ERROR};
+                            {info, _} ->
+                                ejabberd_redis:cmd(["DEL", [<<"code_", Phone/binary>>]]),
+                                {error, ?AFT_ERR_PHONE_EXIST};
+                            not_exist ->
+                                ejabberd_redis:cmd(["DEL", [<<"code_", Phone/binary>>]]),
+                                GUID = generate_jid(),
+                                case check_timeout(IpAddress) of
+                                    true ->
+                                        case ejabberd_auth:aft_try_register(GUID, Server, Phone, Nick) of
+                                            {error, not_allowed} ->
+                                                remove_timeout(IpAddress),
+                                                {error, ?AFT_ERR_IP_FORBIDDEN};
+                                            {atomic, exists} ->
+                                                remove_timeout(IpAddress),
+                                                {error, ?AFT_ERR_PHONE_EXIST};
+                                            {atomic, ok} ->
+                                                SurvivalTime = 3600,
+                                                ejabberd_redis:cmd([["DEL", [Token]],
+                                                    ["APPEND", [Token], [Phone, <<":">>, GUID]],
+                                                    ["EXPIRE", [Token], SurvivalTime]]),
+                                                JID = jlib:make_jid(GUID, Server, <<>>),
                                                 %   send_registration_notifications(JID, IpAddress),
-                                                    send_welcome_message(JID),
-                                                    {ok, {Phone, Token}};
-                                                _ ->
-                                                    remove_timeout(IpAddress),
-                                                    {error, ?ERR_INTERNAL_SERVER_ERROR}
-                                            end;
-                                        false ->
-                                            {error, ?AFT_ERR_REGISTER_SO_QUICKLY}
-                                    end
-                            end;
-                       true ->
+                                                send_welcome_message(JID),
+                                                {ok, {Phone, Token}};
+                                            _ ->
+                                                remove_timeout(IpAddress),
+                                                {error, ?ERR_INTERNAL_SERVER_ERROR}
+                                        end;
+                                    false ->
+                                        {error, ?AFT_ERR_REGISTER_SO_QUICKLY}
+                                end
+                        end;
+                        true ->
 
                             {error, ?AFT_ERR_BAD_CODE}
                     end
@@ -411,22 +411,22 @@ find(Phone, Code, Server, _Lang, _IpAddress) ->
             {error, ?AFT_ERR_BAD_CODE};
         [CacheCode] ->
             if CacheCode =:= Code ->
-                    case ejabberd_auth_odbc:user_info(Server, Phone) of
-                        {info, {UserName, _, _}} ->
-                            Temp = generate_token(),
-                            Token = <<"setpwd_", Temp/binary >>,
-                            SurvivalTime = 3600,
-                            ejabberd_redis:cmd([["DEL", [Token]],
-                                                ["APPEND", [Token], [Phone, <<":">>, UserName]],
-                                                ["EXPIRE", [Token], SurvivalTime]]),
-                            {ok, {Phone,Token}};
-                        not_exist ->
-                            {error, ?AFT_ERR_PHONE_NOT_EXIST};
-                        {error, Error} ->
-                            ?ERROR_MSG("find error=~p~n", [Error]),
-                            {error, ?ERR_INTERNAL_SERVER_ERROR}
-                    end;
-               true ->
+                case ejabberd_auth_odbc:user_info(Server, Phone) of
+                    {info, {UserName, _, _}} ->
+                        Temp = generate_token(),
+                        Token = <<"setpwd_", Temp/binary>>,
+                        SurvivalTime = 3600,
+                        ejabberd_redis:cmd([["DEL", [Token]],
+                            ["APPEND", [Token], [Phone, <<":">>, UserName]],
+                            ["EXPIRE", [Token], SurvivalTime]]),
+                        {ok, {Phone, Token}};
+                    not_exist ->
+                        {error, ?AFT_ERR_PHONE_NOT_EXIST};
+                    {error, Error} ->
+                        ?ERROR_MSG("find error=~p~n", [Error]),
+                        {error, ?ERR_INTERNAL_SERVER_ERROR}
+                end;
+                true ->
                     {error, ?AFT_ERR_BAD_CODE}
             end
     end.
@@ -489,12 +489,12 @@ try_set_password(User, Server, OldPassword, Password, IQ, SubEl, Lang) ->
                 false ->
                     ErrText = "The password is too weak",
                     IQ#iq{type = error,
-                          sub_el = [SubEl, ?ERRT_NOT_ACCEPTABLE(Lang, ErrText)]}
+                        sub_el = [SubEl, ?ERRT_NOT_ACCEPTABLE(Lang, ErrText)]}
             end;
         _ ->
             ErrText = "The old password is wrong",
             IQ#iq{type = error,
-                  sub_el = [SubEl, ?ERRT_NOT_AUTHORIZED(Lang, ErrText)]}
+                sub_el = [SubEl, ?ERRT_NOT_AUTHORIZED(Lang, ErrText)]}
     end.
 
 check_iq_do(SubType, PasswordTag, PhoneTag, TokenTag, CodeTag, Type) ->
@@ -556,8 +556,8 @@ change_phone(User, Server, Phone, Token) ->
                                         true -> {error, ?AFT_ERR_PHONE_EXIST}
                                     end;
                                 not_exist ->
-                                    %%get_code(Phone, 600, 60, <<"change_code_">>, <<"74666">>),
-                                    get_code(Phone, 600, 60, <<"change_code_">>),
+                                    ChangeTemplate = list_to_binary(get_sms_config(sms_template_change)),
+                                    get_code(Phone, 600, 60, <<"change_code_">>, ChangeTemplate),
                                     {ok, Phone};
                                 _ ->
                                     {error, ?AFT_ERR_PHONE_EXIST}
@@ -601,10 +601,11 @@ invite(User, Server, Phone, Type) ->
                     SelfPhone1 = binary:replace(SelfPhone, <<"+86">>, <<>>), %% remove +86.
                     %% this downloadurl should be address of kissnapp on app market after online.
                     DownloadUrl = if
-                                      Type =:= <<"0">> -> <<"http://120.24.232.74:8080/setup/kissnapp.apk">>;
-                                      Type =:= <<"1">> -> <<"http://120.24.232.74:8080/setup/kissnapp.ipa">>
+                                      Type =:= <<"0">> -> list_to_binary(get_sms_config(update_url_android));
+                                      Type =:= <<"1">> -> list_to_binary(get_sms_config(update_url_ios))
                                   end,
-                    case send_msg(Phone, <<"75554">>, [SelfNickname, SelfPhone1, DownloadUrl]) of
+                    InviteTemplate = list_to_binary(get_sms_config(sms_template_invite)),
+                    case send_msg(Phone, InviteTemplate, [SelfNickname, SelfPhone1, DownloadUrl]) of
                         ok -> ok;
                         Error -> Error
                     end
@@ -650,46 +651,20 @@ parse_sms_statuscode(Code) ->
             ok
     end.
 
-%% send_code(Phone, MessageTemplateID, Code, SurvivalTime) ->
-%%     AccountID = "8a48b551506925be01506e8db71310bd",
-%%     Token = "2bfda7eef922411bb6edf4c7bd1f6d83",
-%%     AppID = <<"8a48b5515388ec150153980eff6c1446">>,
-%%     URLPrefix = "https://app.cloopen.com:8883",
-%%
-%%     NowString = now_to_local_string(erlang:now()),
-%%     SigParameter = jlib:md5_hex(AccountID ++ Token ++ NowString, true),
-%%     Authorization = jlib:encode_base64(AccountID ++ ":" ++ NowString),
-%%
-%%     URL = URLPrefix ++ "/2013-12-26/Accounts/" ++ AccountID ++ "/SMS/TemplateSMS?sig=" ++ SigParameter,
-%%     Header = [{"Accept","application/json"}, {"Authorization", Authorization}],
-%%     Body =  <<"{\"to\":\"", Phone/binary, "\",\"appId\":\"", AppID/binary,
-%%         "\",\"templateId\":\"", MessageTemplateID/binary,"\",\"datas\":[\"", Code/binary,"\",\"", SurvivalTime/binary,"\"]}">>,
-%%
-%%     Result = httpc:request(post, {URL, Header, "application/json;charset=utf-8", Body}, [], []),
-%%     case Result of
-%%         {ok, {{_, 200, "OK"}}, _ResponseHeader, ResponseBody} ->
-%%             StatusCode = string:substr(ResponseBody, string:str(ResponseBody, "statusCode") + 13, 6),
-%%              parse_sms_statuscode(StatusCode);
-%%         Error ->
-%%             ?ERROR_MSG("[ERROR]:request to sms service failed, reason=~p~n",[Error]),
-%%             ok
-%%     end.
-
 %% Parameters eg: [<<"66666">>, <<"5">>]
 send_msg(Phone, MessageTemplateID, Parameters) ->
     Phone1 = binary:replace(Phone, <<"+86">>, <<>>), %% remove +86.
-
-    AccountID = "8a48b551506925be01506e8db71310bd",
-    Token = "2bfda7eef922411bb6edf4c7bd1f6d83",
-    AppID = <<"8a48b5515388ec150153980eff6c1446">>,
-    URLPrefix = "https://app.cloopen.com:8883",
+    AccountID = get_sms_config(sms_account),
+    Token = get_sms_config(sms_token),
+    AppID = list_to_binary(get_sms_config(sms_appid)),
+    URLPrefix = get_sms_config(sms_host),
 
     NowString = now_to_local_string(erlang:now()),
     SigParameter = jlib:md5_hex(AccountID ++ Token ++ NowString, true),
     Authorization = jlib:encode_base64(AccountID ++ ":" ++ NowString),
 
     URL = URLPrefix ++ "/2013-12-26/Accounts/" ++ AccountID ++ "/SMS/TemplateSMS?sig=" ++ SigParameter,
-    Header = [{"Accept","application/json"}, {"Authorization", Authorization}],
+    Header = [{"Accept", "application/json"}, {"Authorization", Authorization}],
 
     Data = lists:foldl(fun(E, AccIn) ->
         AccIn1 = if
@@ -698,9 +673,9 @@ send_msg(Phone, MessageTemplateID, Parameters) ->
                  end,
         <<AccIn1/binary, "\"", E/binary, "\"">>
     end,
-    <<>>,
-    Parameters),
-    Body =  <<"{\"to\":\"", Phone1/binary, "\",\"appId\":\"", AppID/binary,
+        <<>>,
+        Parameters),
+    Body = <<"{\"to\":\"", Phone1/binary, "\",\"appId\":\"", AppID/binary,
     "\",\"templateId\":\"", MessageTemplateID/binary, "\",\"datas\":[", Data/binary, "]}">>,
 
     Result = httpc:request(post, {URL, Header, "application/json;charset=utf-8", Body}, [], []),
@@ -709,10 +684,16 @@ send_msg(Phone, MessageTemplateID, Parameters) ->
             StatusCode = string:substr(ResponseBody, string:str(ResponseBody, "statusCode") + 13, 6),
             parse_sms_statuscode(StatusCode);
         Error ->
-            ?ERROR_MSG("[ERROR]:request to sms service failed, reason=~p~n",[Error]),
+            ?ERROR_MSG("[ERROR]:request to sms service failed, reason=~p~n", [Error]),
             ok
     end.
 
+-spec get_sms_config(atom()) -> string() | undefined.
+get_sms_config(Key) ->
+    case application:get_env(ejabberd, Key) of
+        {ok, Val} -> Val;
+        _ -> undefined
+    end.
 
 %% SurvicalTime must equal or big then Intelval.
 -spec get_code(binary(), integer(), integer(), binary(), binary()) -> {error, _} | {ok, _}.
@@ -739,8 +720,7 @@ get_code(Phone, SurvivalTime, Interval, Prefix, MessageTemplateID) ->
                         ["APPEND", [Key], [Code]],
                         ["EXPIRE", [Key], SurvivalTime]]),
 
-                    %case send_code(Phone, MessageTemplateID, Code, SurvivalTime) of
-                    case send_msg(Phone, MessageTemplateID, [Code, SurvivalTime]) of
+                    case send_msg(Phone, MessageTemplateID, [Code, integer_to_binary(SurvivalTime div 60)]) of
                         ok -> {ok, Code};
                         Error -> Error
                     end;
@@ -751,49 +731,6 @@ get_code(Phone, SurvivalTime, Interval, Prefix, MessageTemplateID) ->
             {error, ?AFT_ERR_BAD_PHONE_FORMAT}
     end.
 %% SMS end.
-
-%% generate a random integer string.
--spec get_code(binary(), integer(), integer(), binary()) ->
-                      {error, _} | {ok, _}.
-get_code(Phone, SurvivalTime, Interval, Prefix) ->
-    case check_phone_number_valid(Phone) of
-        true ->
-            Code = list_to_binary(jlib:random_code()),
-            Key = <<Prefix/binary, Phone/binary>>,
-            Allowed = case ejabberd_redis:cmd(["TTL", [Key]]) of
-                          -2 ->
-                              true;
-                          -1 ->
-                              true;
-                          ST ->
-                              if SurvivalTime > Interval ->
-                                      Separator = SurvivalTime - Interval,
-                                      if ST > Separator -> false;
-                                         true -> true
-                                      end;
-                                 true ->
-                                      false
-                              end
-                      end,
-
-            case Allowed of
-                true ->
-                    ejabberd_redis:cmd([["DEL", [Key]],
-                                        ["APPEND", [Key], [Code]],
-                                        ["EXPIRE", [Key], SurvivalTime]]),
-                    %% TOFIX: send code message to phone.
-                    %%SendMSG = "validation code is" ++ SMSCode ++", the code is valid in 60 seconds,
-                    %%          this code is only use for phone app,
-                    %%          you shoule make sure this code is knowed only by you"
-
-                    {ok, Code};
-                false ->
-                    {error, ?AFT_ERR_GET_CODE_SO_QUICKLY}
-            end;
-        false ->
-            {error, ?AFT_ERR_BAD_PHONE_FORMAT}
-    end.
-
 
 get_tag_cdata(false) ->
     <<>>;
@@ -806,25 +743,25 @@ send_registration_notifications(UJID, Source) ->
         [] -> ok;
         JIDs when is_list(JIDs) ->
             Body = lists:flatten(
-                     io_lib:format(
-                       "[~s] The account ~s was registered from IP address ~s "
-                       "on node ~w using ~p.",
-                       [get_time_string(), jlib:jid_to_binary(UJID),
+                io_lib:format(
+                    "[~s] The account ~s was registered from IP address ~s "
+                    "on node ~w using ~p.",
+                    [get_time_string(), jlib:jid_to_binary(UJID),
                         ip_to_string(Source), node(), ?MODULE])),
             lists:foreach(
-              fun(S) ->
-                      case jlib:binary_to_jid(S) of
-                          error -> ok;
-                          JID ->
-                              ejabberd_router:route(
+                fun(S) ->
+                    case jlib:binary_to_jid(S) of
+                        error -> ok;
+                        JID ->
+                            ejabberd_router:route(
                                 jlib:make_jid(<<>>, Host, <<>>),
                                 JID,
                                 #xmlel{name = <<"message">>,
-                                       attrs = [{<<"type">>, <<"chat">>}],
-                                       children = [#xmlel{name = <<"body">>,
-                                                          children = [#xmlcdata{content = Body}]}]})
-                      end
-              end, JIDs);
+                                    attrs = [{<<"type">>, <<"chat">>}],
+                                    children = [#xmlel{name = <<"body">>,
+                                        children = [#xmlcdata{content = Body}]}]})
+                    end
+                end, JIDs);
         _ ->
             ok
     end.
@@ -842,31 +779,31 @@ check_timeout(Source) ->
             Priority = -(MSec * 1000000 + Sec),
             CleanPriority = Priority + Timeout,
             F = fun() ->
-                        Treap = case mnesia:read(mod_register_aft_ip, treap,
-                                                 write) of
-                                    [] ->
-                                        treap:empty();
-                                    [{mod_register_aft_ip, treap, T}] -> T
-                                end,
-                        Treap1 = clean_treap(Treap, CleanPriority),
-                        case treap:lookup(Source, Treap1) of
-                            error ->
-                                Treap2 = treap:insert(Source, Priority, [],
-                                                      Treap1),
-                                mnesia:write({mod_register_aft_ip, treap, Treap2}),
-                                true;
-                            {ok, _, _} ->
-                                mnesia:write({mod_register_aft_ip, treap, Treap1}),
-                                false
-                        end
-                end,
+                Treap = case mnesia:read(mod_register_aft_ip, treap,
+                    write) of
+                            [] ->
+                                treap:empty();
+                            [{mod_register_aft_ip, treap, T}] -> T
+                        end,
+                Treap1 = clean_treap(Treap, CleanPriority),
+                case treap:lookup(Source, Treap1) of
+                    error ->
+                        Treap2 = treap:insert(Source, Priority, [],
+                            Treap1),
+                        mnesia:write({mod_register_aft_ip, treap, Treap2}),
+                        true;
+                    {ok, _, _} ->
+                        mnesia:write({mod_register_aft_ip, treap, Treap1}),
+                        false
+                end
+            end,
 
             case mnesia:transaction(F) of
                 {atomic, Res} ->
                     Res;
                 {aborted, Reason} ->
                     ?ERROR_MSG("mod_register_aft: timeout check error: ~p~n",
-                               [Reason]),
+                        [Reason]),
                     true
             end;
         true ->
@@ -897,22 +834,22 @@ remove_timeout(Source) ->
     if
         is_integer(Timeout) ->
             F = fun() ->
-                        Treap = case mnesia:read(mod_register_aft_ip, treap,
-                                                 write) of
-                                    [] ->
-                                        treap:empty();
-                                    [{mod_register_aft_ip, treap, T}] -> T
-                                end,
-                        Treap1 = treap:delete(Source, Treap),
-                        mnesia:write({mod_register_aft_ip, treap, Treap1}),
-                        ok
-                end,
+                Treap = case mnesia:read(mod_register_aft_ip, treap,
+                    write) of
+                            [] ->
+                                treap:empty();
+                            [{mod_register_aft_ip, treap, T}] -> T
+                        end,
+                Treap1 = treap:delete(Source, Treap),
+                mnesia:write({mod_register_aft_ip, treap, Treap1}),
+                ok
+            end,
             case mnesia:transaction(F) of
                 {atomic, ok} ->
                     ok;
                 {aborted, Reason} ->
                     ?ERROR_MSG("mod_register_aft: timeout remove error: ~p~n",
-                               [Reason]),
+                        [Reason]),
                     ok
             end;
         true ->
@@ -927,20 +864,20 @@ get_time_string() -> write_time(erlang:localtime()).
 %% Function copied from ejabberd_logger_h.erl and customized
 write_time({{Y, Mo, D}, {H, Mi, S}}) ->
     io_lib:format("~w-~.2.0w-~.2.0w ~.2.0w:~.2.0w:~.2.0w",
-                  [Y, Mo, D, H, Mi, S]).
+        [Y, Mo, D, H, Mi, S]).
 
 is_strong_password(Server, Password) ->
     LServer = jlib:nameprep(Server),
     case gen_mod:get_module_opt(LServer, ?MODULE, password_strength, 0) of
         Entropy when is_number(Entropy), Entropy >= 0 ->
             if Entropy == 0 ->
-                    true;
-               true ->
+                true;
+                true ->
                     ejabberd_auth:entropy(Password) >= Entropy
             end;
         Wrong ->
             ?WARNING_MSG("Wrong value for password_strength option: ~p",
-                         [Wrong]),
+                [Wrong]),
             true
     end.
 
@@ -988,13 +925,13 @@ send_welcome_message(JID) ->
             ok;
         {Subj, Body} ->
             ejabberd_router:route(
-              jlib:make_jid(<<>>, Host, <<>>),
-              JID,
-              #xmlel{name = <<"message">>, attrs = [{<<"type">>, <<"normal">>}],
-                     children = [#xmlel{name = <<"subject">>,
-                                        children = [#xmlcdata{content = Subj}]},
-                                 #xmlel{name = <<"body">>,
-                                        children = [#xmlcdata{content = Body}]}]});
+                jlib:make_jid(<<>>, Host, <<>>),
+                JID,
+                #xmlel{name = <<"message">>, attrs = [{<<"type">>, <<"normal">>}],
+                    children = [#xmlel{name = <<"subject">>,
+                        children = [#xmlcdata{content = Subj}]},
+                        #xmlel{name = <<"body">>,
+                            children = [#xmlcdata{content = Body}]}]});
         _ ->
             ok
     end.
