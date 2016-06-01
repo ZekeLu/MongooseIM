@@ -1,0 +1,222 @@
+%%==============================================================================
+%% Copyright China AFT by sharp.
+%%==============================================================================
+-module(mod_import).
+
+%% cowboy_rest callbacks
+-export([init/3,
+    rest_init/2,
+    rest_terminate/2]).
+
+-export([allowed_methods/2, content_types_provided/2,
+    content_types_accepted/2]).
+
+-export([to_json/2, from_json/2]).
+
+-record(state, {handler, opts, bindings}).
+
+-record(project, {
+    name,
+    admin
+}).
+
+-record(job, {
+    name :: string(),
+    lft :: integer(),
+    rgt :: integer(),
+    depth :: integer(),
+    project :: integer(),
+    department :: string(),
+    department_level :: integer(),
+    department_id :: integer(),
+    user :: [string()]
+}).
+
+-record(data, {
+    project :: #project{},
+    jobs :: [#job{}]
+}).
+
+
+%%--------------------------------------------------------------------
+%% cowboy_rest callbacks
+%%--------------------------------------------------------------------
+init({_Transport, http}, Req, Opts) ->
+    {upgrade, protocol, cowboy_rest, Req, Opts}.
+
+rest_init(Req, _Opts) ->
+    {ok, Req, #state{}}.
+
+rest_terminate(_Req, _State) ->
+    ok.
+
+allowed_methods(Req, State) ->
+    {[<<"GET">>, <<"POST">>], Req, State}.
+
+content_types_provided(Req, State) ->
+    CTP = [{{<<"application">>, <<"json">>, '*'}, to_json}],
+    {CTP, Req, State}.
+
+content_types_accepted(Req, State) ->
+    CTA = [{{<<"application">>, <<"json">>, '*'}, from_json}],
+    {CTA, Req, State}.
+
+
+%%--------------------------------------------------------------------
+%% content_types_provided/2 callbacks
+%%--------------------------------------------------------------------
+to_json(Req, State) ->
+    handle_get(mongoose_api_json, Req, State).
+
+%%--------------------------------------------------------------------
+%% content_types_accepted/2 callbacks
+%%--------------------------------------------------------------------
+from_json(Req, State) ->
+    handle_post(mongoose_api_json, Req, State).
+%%--------------------------------------------------------------------
+%% HTTP verbs handlers
+%%--------------------------------------------------------------------
+
+handle_get(_Deserializer, Req, State) ->
+    handle_post(_Deserializer, Req, State).
+
+handle_post(_Deserializer, Req, State) ->
+    {Server, Req1} = cowboy_req:host(Req),
+    {ok, Body, Req2} = cowboy_req:body(Req1),
+    io:format(">>>>:~p~n", [Body]),
+    Data = jsx:decode(Body),
+    io:format(">>>>>>>>>>json:~p~n", [Data]),
+    handle_data(Server, Data),
+    Con = jsx:encode(Data),
+    io:format(">>>>>>>>>>json:~p~n", [Con]),
+    Req3 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"application/json">>}], Con, Req2),
+    {halt, Req3, State}.
+
+
+mock_data() ->
+    [
+        {<<"project">>,
+            [
+                {<<"name">>, <<"test_project">>},
+                {<<"admin">>, <<"1340000000">>}
+            ]
+        },
+        {<<"jobs">>,
+            [
+                [
+                    {<<"name">>, <<"test_job1">>},
+                    {<<"lft">>, 1},
+                    {<<"rgt">>, 16},
+                    {<<"depth">>, 1},
+                    {<<"project">>, 1},
+                    {<<"department">>, <<"depart_name">>},
+                    {<<"department_level">>, 1},
+                    {<<"department_id">>, 1},
+                    {<<"user">>, [<<"13411111111">>, <<"13422222222">>]}
+                ],
+                [
+                    {<<"name">>, <<"test_job2">>},
+                    {<<"lft">>, 1},
+                    {<<"rgt">>, 16},
+                    {<<"depth">>, 1},
+                    {<<"project">>, 1},
+                    {<<"department">>, <<"depart_name2">>},
+                    {<<"department_level">>, 1},
+                    {<<"department_id">>, 1},
+                    {<<"user">>, [<<"13433333333">>, <<"13444444444">>]}
+                ]
+            ]
+        }
+    ].
+
+proplist_to_project(Props) ->
+    P = proplists:get_value(<<"project">>, Props),
+    #project{name = proplists:get_value(<<"name">>, P),
+        admin = proplists:get_value("admin", P)}.
+
+proplist_to_job(Props) ->
+    List = lists:map(fun(X) ->
+        proplists:get_value(atom_to_binary(X, utf8), Props)
+    end, record_info(fields, job)),
+    L = [job | List],
+    list_to_tuple(L).
+
+
+handle_data(Server, D) ->
+    case create_project(Server, proplist_to_project(D)) of
+        {ok, ProjectId} ->
+            lists:foreach(fun(X) ->
+                create_job(Server, proplist_to_job(X), ProjectId)
+            end, proplists:get_value(<<"jobs">>, D));
+        _R ->
+            {error, _R}
+    end.
+
+create_project(Server, Project) ->
+    case create_user(Server, Project#project.admin) of
+        {ok, Jid} ->
+            Query = [<<"insert into project(name,admin,photo) values('">>,
+                Project#project.name, <<"','">>, Jid, <<"','');">>],
+            F = fun() ->
+                ejabberd_odbc:sql_query_t(Query),
+                ejabberd_odbc:sql_query_t(<<"select LAST_INSERT_ID();">>)
+            end,
+            case ejabberd_odbc:sql_transaction(Server, F) of
+                {selected, _, [R]} ->
+                    {ok, R};
+                _Reason ->
+                    {error, _Reason}
+            end;
+        _R ->
+            {error, {create_user, _R}}
+    end.
+
+
+create_user(Server, Phone) ->
+    Jid = jlib:generate_uuid(),
+    case ejabberd_auth:aft_try_register(Jid, Server, Phone, Phone) of
+        {atomic, ok} ->
+            case ejabberd_auth:set_password(Jid, Server, Phone) of
+                ok ->
+                    {ok, Jid};
+                _R ->
+                    {error, _R}
+            end;
+        _Reason ->
+            {error, _Reason}
+    end.
+
+create_job(Server, Job, ProjectId) ->
+    Users = lists:map(fun(X) ->
+        case create_user(Server, X) of
+            {ok, Jid} ->
+                Jid;
+            _ ->
+                undefined
+        end
+    end, Job#job.user),
+    case
+    lists:member(undefined, Users) of
+        true ->
+            {error, create_user_failed};
+        _ ->
+            Query = [<<"insert into organization(name,lft,rgt,depth,department,project,department_level,department_id) values ('">>,
+                Job#job.name, <<"',">>, Job#job.lft, <<",">>, Job#job.rgt, <<",">>, Job#job.depth, <<",'">>,
+                Job#job.department, <<"',">>, ProjectId, <<",">>, Job#job.department_level, <<",">>,
+                Job#job.department_id, <<");">>],
+            F = fun() ->
+                ejabberd_odbc:sql_query_t(Query),
+                {selected, _, [Id]} = ejabberd_odbc:sql_query_t(<<"select LAST_INSERT_ID();">>),
+                lists:foreach(fun(X) ->
+                    Query2 = [<<"insert into organization_user(organization,jid) values(">>, Id, <<",'">>, X, <<"');">>],
+                    ejabberd_odbc:sql_query_t(Query2)
+                end, Users),
+                ok
+            end,
+            case ejabberd_odbc:sql_transaction(Server, F) of
+                ok ->
+                    ok;
+                _R ->
+                    {error, _R}
+            end
+    end.
