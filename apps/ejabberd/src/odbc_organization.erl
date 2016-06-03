@@ -278,14 +278,14 @@ delete_employee(LServer, Project, _BareJID, {JID, Job}) ->
     end.
 
 -spec add_project(binary(), #project{}, binary(), binary) -> {ok, #project{}, #node{}} | {error, _}.
-add_project(LServer, #project{name = Name, description = Desc, admin = Admin}, TemplateId, Job) ->
+add_project(LServer, #project{name = Name, description = Desc, admin = Admin, work_url = WorkUrl, city = City, background = Background}, TemplateId, Job) ->
     TimeString = now_random(),
     Negative_TemplateId = integer_to_binary( 0 - binary_to_integer(TemplateId) ),
         F = fun() ->
         {selected, [<<"photo">>], [{Photo}]} = ejabberd_odbc:sql_query_t(["select photo from template where id='", TemplateId, "';"]),
-        Query1 = ["insert into project(name,description,photo,admin,job_tag,member_tag, link_tag) values('",
+        Query1 = ["insert into project(name,description,photo,admin,job_tag,member_tag, link_tag, work_url, city, background) values('",
             escape(Name), "','", escape(Desc), "','", Photo, "','",
-            escape(Admin), "','", TimeString, "','", TimeString, "','", TimeString, "');"],
+            escape(Admin), "','", TimeString, "','", TimeString, "','", TimeString, "','", WorkUrl, "','", City, "','", Background, "');"],
         ejabberd_odbc:sql_query_t(Query1),
         {selected, [<<"id">>, <<"start_at">>], [{Id, StartTime}]} = ejabberd_odbc:sql_query_t(["select id, start_at from project where id=last_insert_id();"]),
         Query2 = ["insert into organization(name,lft,rgt,depth,department,department_level,department_id, project) select name,lft,rgt,depth,department,",
@@ -342,12 +342,12 @@ list_project(LServer, JID, IsTemplate) ->
                     {error, Reason}
             end;
         _ ->
-            Query = ["select p.id, p.name, p.description, p.photo, p.status, p.admin, p.start_at, p.end_at, p.job_tag, p.member_tag, p.link_tag ",
+            Query = ["select p.id, p.name, p.description, p.photo, p.status, p.admin, p.start_at, p.end_at, p.job_tag,",
+                " p.member_tag, p.link_tag, p.work_url, p.city, p.background ",
                 "from project as p, organization_user as ou, organization as o where o.id=ou.organization and ou.jid='", escape(JID),
                 "' and p.id=o.project;"],
             case ejabberd_odbc:sql_query(LServer, Query) of
-                {selected, [<<"id">>, <<"name">>, <<"description">>, <<"photo">>, <<"status">>, <<"admin">>,
-                    <<"start_at">>, <<"end_at">>, <<"job_tag">>, <<"member_tag">>, <<"link_tag">>], Rs} ->
+                {selected, _, Rs} ->
                     {ok, Rs};
                 Reason ->
                     {error, Reason}
@@ -378,12 +378,14 @@ set_photo(LServer, ProID, Photo) ->
 
 -spec get_project(binary(), binary()) -> {ok, #project{}} | {error, _}.
 get_project(LServer, Project) ->
-    Query = ["select id, name, description, photo, status, admin, start_at, end_at, job_tag, member_tag, link_tag, work_url ",
+    Query = ["select id, name, description, photo, status, admin, start_at, end_at, job_tag, member_tag, link_tag, work_url, city, background ",
         " from project where id='", Project, "';"],
     case ejabberd_odbc:sql_query(LServer, Query) of
-        {selected, _, [{ID, Name, Description, Photo, Status, Admin, StartAt, EndAt, JobTag, MemberTag, LinkTag, WorkUrl}]} ->
+        {selected, _, [{ID, Name, Description, Photo, Status, Admin, StartAt, EndAt, JobTag,
+            MemberTag, LinkTag, WorkUrl, City, Background}]} ->
             {ok, #project{id=ID, name=Name, description = Description, photo = Photo, status = Status, admin = Admin,
-            start_at = StartAt, end_at = EndAt, job_tag = JobTag, member_tag = MemberTag, link_tag = LinkTag, work_url = WorkUrl}};
+            start_at = StartAt, end_at = EndAt, job_tag = JobTag, member_tag = MemberTag,
+                link_tag = LinkTag, work_url = WorkUrl, city = City, background = Background}};
         {selected, _, []} ->
             {ok, #project{}};
         Reason ->

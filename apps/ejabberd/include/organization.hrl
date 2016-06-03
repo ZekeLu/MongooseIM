@@ -51,7 +51,9 @@
     job_tag :: binary() | undefined,
     member_tag :: binary() | undefined,
     link_tag :: binary() | undefined,
-    work_url :: binary() | undefined
+    work_url :: binary() | undefined,
+    city :: binary() | undefined,
+    background :: binary() | undefined
 }).
 
 %% define group type

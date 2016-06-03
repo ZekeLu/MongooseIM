@@ -172,8 +172,11 @@ create(From, _To, #iq{type = set, sub_el = SubEl} = IQ) ->
     {_, Name} = lists:keyfind(<<"name">>, 1, Data),
     {_, Template} = lists:keyfind(<<"template">>, 1, Data),
     {_, Job} = lists:keyfind(<<"job">>, 1, Data),
+    {_, WorkUrl} = lists:keyfind(<<"work_url">>, 1, Data),
+    {_, City} = lists:keyfind(<<"city">>, 1, Data),
+    {_, Background} = lists:keyfind(<<"background">>, 1, Data),
 
-    case create_ex(S, Name, BareJID, Template, Job) of
+    case create_ex(S, Name, BareJID, Template, Job, WorkUrl, City, Background) of
         {error, Error} ->
             IQ#iq{type = error, sub_el = [SubEl, Error]};
         {ok, Result} ->
@@ -558,11 +561,11 @@ get_project_ex(LServer, BareJID, {ProID, ProjectTarget}, Type) ->
             {ok, Json};
         {true, self} ->
             {ok, #project{id = R1, name = R2, description = R3, photo = R4, status = R5, admin = R6, start_at = R7, end_at = R8,
-            job_tag = R9, member_tag = R10, link_tag = R11}} = odbc_organization:get_project(LServer, ProID),
+            job_tag = R9, member_tag = R10, link_tag = R11, work_url = R12, city = R13, background = R14}} = odbc_organization:get_project(LServer, ProID),
             F = mochijson2:encoder([{utf8, true}]),
             Json1 = [{struct, [{"id", R1}, {"name", R2}, {"description", R3}, {"photo", photo_url(R4)},
                 {"status", R5}, {"admin", R6}, {"start_time", R7}, {"end_time", R8}, {"job_tag", R9},
-                {"member_tag", R10}, {"link_tag", R11}]}],
+                {"member_tag", R10}, {"link_tag", R11}, {"work_url", R12}, {"city", R13}, {"background", R14}]}],
             Json = iolist_to_binary( F( Json1 ) ),
             {ok, Json};
         {true, link} ->
@@ -586,8 +589,9 @@ list_project_ex(LServer, BareJID, Type, JID) ->
                     F = mochijson2:encoder([{utf8, true}]),
                     Json1 = [{struct, [{"id", R1}, {"name", R2}, {"description", R3}, {"photo",photo_url(R4)},
                         {"status", R5}, {"admin", R6}, {"start_time", R7}, {"end_time", R8},
-                        {"job_tag", R9}, {"member_tag", R10}, {"link_tag", R11}]}
-                        || {R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11} <- Result ],
+                        {"job_tag", R9}, {"member_tag", R10}, {"link_tag", R11}, {"work_url", R12},
+                        {"city", R13}, {"background", R14}]}
+                        || {R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14} <- Result ],
                     Json = iolist_to_binary( F( Json1 ) ),
                     {ok, Json};
                 {error, ErrorReason} ->
@@ -646,13 +650,16 @@ get_structure_ex(LServer, BareJID, ProID, ProjectTarget, IsTemplate) ->
             end
     end.
 
-create_ex(LServer, ProjectName, BareJID, Template, Job) ->
+create_ex(LServer, ProjectName, BareJID, Template, Job, WorkUrl, City, Background) ->
     case odbc_organization:is_project_name_exist(LServer, ProjectName) of
         false ->
             case odbc_organization:node_exist(LServer, #node{id = Job, project = integer_to_binary(0 - binary_to_integer(Template))}) of
                 {ok, true} ->
-                    case odbc_organization:add_project(LServer, #project{name = ProjectName, description = <<"">>, admin = BareJID}, Template, Job) of
-                        {ok, #project{id = Id, name = _Name, photo = Photo ,description = _Desc, job_tag = JobTag, start_at = StartTime},
+                    case odbc_organization:add_project(LServer,
+                        #project{name = ProjectName, description = <<"">>, admin = BareJID, work_url = WorkUrl,
+                            city = City, background = Background }, Template, Job) of
+                        {ok, #project{id = Id, name = _Name, photo = Photo ,description = _Desc,
+                            job_tag = JobTag, start_at = StartTime, work_url = WorkUrl, city = City, background = Background},
                          #node{id = JobId, name=JobName, lft = Left, rgt = Right, department = Part, department_level = PartLevel, department_id = PartID}} ->
                             PhotoURL = photo_url(Photo),
                             ejabberd_hooks:run(create_project, LServer, [LServer, BareJID, PartID, Template, Job, Id, JobId]),
@@ -660,6 +667,8 @@ create_ex(LServer, ProjectName, BareJID, Template, Job) ->
                                     "\",\"photo\":\"", PhotoURL/binary, "\",\"job_tag\":\"", JobTag/binary,
                                     "\",\"member_tag\":\"", JobTag/binary, "\",\"link_tag\":\"", JobTag/binary,
                                     "\",\"start_time\":\"", StartTime/binary,
+                                    "\", \"work_url\":\"", WorkUrl/binary, "\",\"city\":\"",
+                                    City/binary,"\",\"background\":\"", Background/binary,
                                     "\"},\"job\":{\"job_id\":\"", JobId/binary, "\",\"job_name\":\"", JobName/binary,
                                     "\",\"left\":\"", Left/binary, "\",\"right\":\"", Right/binary,
                                     "\",\"part\":\"", Part/binary, "\",\"part_level\":\"", PartLevel/binary,
