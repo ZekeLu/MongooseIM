@@ -17,7 +17,11 @@
 
 -record(project, {
     name,
-    admin
+    admin,
+    photo,
+    work_url,
+    city,
+    background
 }).
 
 -record(job, {
@@ -29,12 +33,7 @@
     department :: string(),
     department_level :: integer(),
     department_id :: integer(),
-    user :: [string()]
-}).
-
--record(data, {
-    project :: #project{},
-    jobs :: [#job{}]
+    users :: [string()]
 }).
 
 
@@ -82,23 +81,35 @@ handle_get(_Deserializer, Req, State) ->
 
 handle_post(_Deserializer, Req, State) ->
     {Server, Req1} = cowboy_req:host(Req),
-    {ok, Body, Req2} = cowboy_req:body(Req1),
-    io:format(">>>>:~p~n", [Body]),
-    Data = jsx:decode(Body),
-    io:format(">>>>>>>>>>json:~p~n", [Data]),
-    handle_data(Server, Data),
-    Con = jsx:encode(Data),
-    io:format(">>>>>>>>>>json:~p~n", [Con]),
-    Req3 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"application/json">>}], Con, Req2),
-    {halt, Req3, State}.
-
+    {ok, Secret} = application:get_env(ejabberd, upload_secret),
+    Token = list_to_binary(Secret),
+    case cowboy_req:parse_header(<<"token">>, Req1) of
+        {_, Token, Req2} ->
+            {ok, Body, Req3} = cowboy_req:body(Req2),
+            Data = jsx:decode(Body),
+            case parse_data(Server, Data) of
+                ok ->
+                    Req4 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}], <<"done!">>, Req3),
+                    {halt, Req4, State};
+                R ->
+                    Req4 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}],
+                        term_to_binary(R), Req3),
+                    {halt, Req4, State}
+            end;
+        _R ->
+            Req2 = cowboy_req:reply(<<"400">>, [{<<"content-type">>, <<"text/plain">>}], <<"not valid">>, Req1),
+            {halt, Req2, State}
+    end.
 
 mock_data() ->
     [
         {<<"project">>,
             [
                 {<<"name">>, <<"test_project">>},
-                {<<"admin">>, <<"1340000000">>}
+                {<<"admin">>, <<"+861340000000">>},
+                {<<"city">>, <<"111111">>},
+                {<<"background">>, <<"adfadfadfdadfadsfadfadf">>},
+                {<<"work_url">>, <<"adfasdfadfadfadfadfadfadfadfa">>}
             ]
         },
         {<<"jobs">>,
@@ -108,22 +119,20 @@ mock_data() ->
                     {<<"lft">>, 1},
                     {<<"rgt">>, 16},
                     {<<"depth">>, 1},
-                    {<<"project">>, 1},
                     {<<"department">>, <<"depart_name">>},
                     {<<"department_level">>, 1},
                     {<<"department_id">>, 1},
-                    {<<"user">>, [<<"13411111111">>, <<"13422222222">>]}
+                    {<<"users">>, [<<"+8613411111111">>, <<"+8613422222222">>]}
                 ],
                 [
                     {<<"name">>, <<"test_job2">>},
-                    {<<"lft">>, 1},
-                    {<<"rgt">>, 16},
+                    {<<"lft">>, 2},
+                    {<<"rgt">>, 15},
                     {<<"depth">>, 1},
-                    {<<"project">>, 1},
                     {<<"department">>, <<"depart_name2">>},
-                    {<<"department_level">>, 1},
-                    {<<"department_id">>, 1},
-                    {<<"user">>, [<<"13433333333">>, <<"13444444444">>]}
+                    {<<"department_level">>, 2},
+                    {<<"department_id">>, 2},
+                    {<<"users">>, [<<"+8613433333333">>, <<"+8613444444444">>]}
                 ]
             ]
         }
@@ -131,8 +140,11 @@ mock_data() ->
 
 proplist_to_project(Props) ->
     P = proplists:get_value(<<"project">>, Props),
-    #project{name = proplists:get_value(<<"name">>, P),
-        admin = proplists:get_value("admin", P)}.
+    List = lists:map(fun(X) ->
+        proplists:get_value(atom_to_binary(X, utf8), P)
+    end, record_info(fields, project)),
+    L = [project | List],
+    list_to_tuple(L).
 
 proplist_to_job(Props) ->
     List = lists:map(fun(X) ->
@@ -142,27 +154,41 @@ proplist_to_job(Props) ->
     list_to_tuple(L).
 
 
-handle_data(Server, D) ->
+parse_data(Server, D) ->
     case create_project(Server, proplist_to_project(D)) of
         {ok, ProjectId} ->
-            lists:foreach(fun(X) ->
-                create_job(Server, proplist_to_job(X), ProjectId)
-            end, proplists:get_value(<<"jobs">>, D));
+            R = lists:map(fun(X) ->
+                case create_job(Server, proplist_to_job(X), ProjectId) of
+                    ok ->
+                        ok;
+                    _ ->
+                        failed
+                end
+            end, proplists:get_value(<<"jobs">>, D)),
+            case lists:member(ok, R) of
+                true ->
+                    ok;
+                _ ->
+                    {error, create_job_failed}
+            end;
         _R ->
             {error, _R}
     end.
 
+
 create_project(Server, Project) ->
     case create_user(Server, Project#project.admin) of
         {ok, Jid} ->
-            Query = [<<"insert into project(name,admin,photo) values('">>,
-                Project#project.name, <<"','">>, Jid, <<"','');">>],
+            Query = [<<"insert into project(name,admin,photo,work_url,background,city) values('">>,
+                Project#project.name, <<"','">>, <<Jid/binary, $@, Server/binary>>, <<"','','">>,
+                Project#project.work_url, <<"','">>,
+                Project#project.background, <<"','">>, Project#project.city, <<"');">>],
             F = fun() ->
                 ejabberd_odbc:sql_query_t(Query),
                 ejabberd_odbc:sql_query_t(<<"select LAST_INSERT_ID();">>)
             end,
             case ejabberd_odbc:sql_transaction(Server, F) of
-                {selected, _, [R]} ->
+                {atomic, {selected, _, [{R}]}} ->
                     {ok, R};
                 _Reason ->
                     {error, _Reason}
@@ -173,18 +199,25 @@ create_project(Server, Project) ->
 
 
 create_user(Server, Phone) ->
-    Jid = jlib:generate_uuid(),
-    case ejabberd_auth:aft_try_register(Jid, Server, Phone, Phone) of
-        {atomic, ok} ->
-            case ejabberd_auth:set_password(Jid, Server, Phone) of
-                ok ->
-                    {ok, Jid};
-                _R ->
-                    {error, _R}
+    Query = [<<"select username from users where cellphone ='">>, Phone, <<"';">>],
+    case ejabberd_odbc:sql_query(Server, Query) of
+        {selected, _, []} ->
+            Jid = jlib:generate_uuid(),
+            case ejabberd_auth:aft_try_register(Jid, Server, Phone, Phone) of
+                {atomic, ok} ->
+                    case ejabberd_auth:set_password(Jid, Server, Phone) of
+                        ok ->
+                            {ok, Jid};
+                        _R ->
+                            {error, _R}
+                    end;
+                _Reason ->
+                    {error, _Reason}
             end;
-        _Reason ->
-            {error, _Reason}
+        {selected, _, [{R}]} ->
+            {ok, R}
     end.
+
 
 create_job(Server, Job, ProjectId) ->
     Users = lists:map(fun(X) ->
@@ -194,29 +227,30 @@ create_job(Server, Job, ProjectId) ->
             _ ->
                 undefined
         end
-    end, Job#job.user),
-    case
-    lists:member(undefined, Users) of
+    end, Job#job.users),
+    case lists:member(undefined, Users) of
         true ->
             {error, create_user_failed};
         _ ->
-            Query = [<<"insert into organization(name,lft,rgt,depth,department,project,department_level,department_id) values ('">>,
+            Query = [<<"insert into organization(name,lft,rgt,depth,department,project,department_level,department_id) values('">>,
                 Job#job.name, <<"',">>, Job#job.lft, <<",">>, Job#job.rgt, <<",">>, Job#job.depth, <<",'">>,
                 Job#job.department, <<"',">>, ProjectId, <<",">>, Job#job.department_level, <<",">>,
                 Job#job.department_id, <<");">>],
             F = fun() ->
-                ejabberd_odbc:sql_query_t(Query),
-                {selected, _, [Id]} = ejabberd_odbc:sql_query_t(<<"select LAST_INSERT_ID();">>),
+                {updated, 1} = ejabberd_odbc:sql_query_t(Query),
+                {selected, _, [{Id}]} = ejabberd_odbc:sql_query_t(<<"select LAST_INSERT_ID();">>),
                 lists:foreach(fun(X) ->
-                    Query2 = [<<"insert into organization_user(organization,jid) values(">>, Id, <<",'">>, X, <<"');">>],
+                    Query2 = [<<"insert into organization_user(organization,jid) values(">>, Id, <<",'">>,
+                        <<X/binary, $@, Server/binary>>, <<"');">>],
                     ejabberd_odbc:sql_query_t(Query2)
                 end, Users),
                 ok
             end,
             case ejabberd_odbc:sql_transaction(Server, F) of
-                ok ->
+                {atomic, ok} ->
                     ok;
                 _R ->
+                    lager:error(">>>create failed: ~p~n", [_R]),
                     {error, _R}
             end
     end.
