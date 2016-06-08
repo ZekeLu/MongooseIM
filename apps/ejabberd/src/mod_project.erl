@@ -565,7 +565,7 @@ get_project_ex(LServer, BareJID, {ProID, ProjectTarget}, Type) ->
             F = mochijson2:encoder([{utf8, true}]),
             Json1 = [{struct, [{"id", R1}, {"name", R2}, {"description", R3}, {"photo", photo_url(R4)},
                 {"status", R5}, {"admin", R6}, {"start_time", R7}, {"end_time", R8}, {"job_tag", R9},
-                {"member_tag", R10}, {"link_tag", R11}, {"work_url", R12}, {"city", R13}, {"background", R14}]}],
+                {"member_tag", R10}, {"link_tag", R11}, {"work_url", R12}, {"city", R13}, {"background", get_background(LServer, R14)}]}],
             Json = iolist_to_binary( F( Json1 ) ),
             {ok, Json};
         {true, link} ->
@@ -590,7 +590,7 @@ list_project_ex(LServer, BareJID, Type, JID) ->
                     Json1 = [{struct, [{"id", R1}, {"name", R2}, {"description", R3}, {"photo",photo_url(R4)},
                         {"status", R5}, {"admin", R6}, {"start_time", R7}, {"end_time", R8},
                         {"job_tag", R9}, {"member_tag", R10}, {"link_tag", R11}, {"work_url", R12},
-                        {"city", R13}, {"background", R14}]}
+                        {"city", R13}, {"background", get_background(LServer, R14)}]}
                         || {R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14} <- Result ],
                     Json = iolist_to_binary( F( Json1 ) ),
                     {ok, Json};
@@ -663,12 +663,13 @@ create_ex(LServer, ProjectName, BareJID, Template, Job, WorkUrl, City, Backgroun
                          #node{id = JobId, name=JobName, lft = Left, rgt = Right, department = Part, department_level = PartLevel, department_id = PartID}} ->
                             PhotoURL = photo_url(Photo),
                             ejabberd_hooks:run(create_project, LServer, [LServer, BareJID, PartID, Template, Job, Id, JobId]),
+                            B = get_background(LServer, Background),
                             {ok, <<"{\"project\":{\"id\":\"", Id/binary, "\",\"name\":\"", ProjectName/binary,
                                     "\",\"photo\":\"", PhotoURL/binary, "\",\"job_tag\":\"", JobTag/binary,
                                     "\",\"member_tag\":\"", JobTag/binary, "\",\"link_tag\":\"", JobTag/binary,
                                     "\",\"start_time\":\"", StartTime/binary,
                                     "\", \"work_url\":\"", WorkUrl/binary, "\",\"city\":\"",
-                                    City/binary,"\",\"background\":\"", Background/binary,
+                                    City/binary,"\",\"background\":\"", B/binary,
                                     "\"},\"job\":{\"job_id\":\"", JobId/binary, "\",\"job_name\":\"", JobName/binary,
                                     "\",\"left\":\"", Left/binary, "\",\"right\":\"", Right/binary,
                                     "\",\"part\":\"", Part/binary, "\",\"part_level\":\"", PartLevel/binary,
@@ -1250,3 +1251,13 @@ project_status(LServer, Project) ->
             not_exist
     end.
 
+get_background(LServer, FileId) ->
+    Query = [<<"select uid from mms_file where id = '">>, FileId, "';"],
+    case ejabberd_odbc:sql_query(LServer, Query) of
+        {selected, _ , []} ->
+            <<>>;
+        {selected, _ , [{R}]} ->
+            photo_url(R);
+        _ ->
+            <<>>
+    end.
