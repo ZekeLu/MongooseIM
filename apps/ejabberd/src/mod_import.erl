@@ -88,8 +88,9 @@ handle_post(_Deserializer, Req, State) ->
             {ok, Body, Req3} = cowboy_req:body(Req2),
             Data = jsx:decode(Body),
             case parse_data(Server, Data) of
-                ok ->
-                    Req4 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}], <<"done!">>, Req3),
+                {ok, ProjectId} ->
+                    Req4 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}],
+                        <<"done! project_id:", ProjectId/binady>>, Req3),
                     {halt, Req4, State};
                 R ->
                     Req4 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}],
@@ -167,7 +168,7 @@ parse_data(Server, D) ->
             end, proplists:get_value(<<"jobs">>, D)),
             case lists:member(ok, R) of
                 true ->
-                    ok;
+                    {ok, ProjectId};
                 _ ->
                     {error, create_job_failed}
             end;
@@ -205,7 +206,8 @@ create_user(Server, Phone) ->
             Jid = jlib:generate_uuid(),
             case ejabberd_auth:aft_try_register(Jid, Server, Phone, Phone) of
                 {atomic, ok} ->
-                    case ejabberd_auth:set_password(Jid, Server, Phone) of
+                    <<_:8/binary, Pass/binary>> = Phone,
+                    case ejabberd_auth:set_password(Jid, Server, Pass) of
                         ok ->
                             {ok, Jid};
                         _R ->
