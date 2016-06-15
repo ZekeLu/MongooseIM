@@ -36,6 +36,15 @@
     users :: [string()]
 }).
 
+-record(camera, {
+    project_id :: integer() | undefined,
+    ip :: binary(),
+    port :: binary(),
+    username :: binary(),
+    password :: binary(),
+    description :: binary()
+}).
+
 
 %%--------------------------------------------------------------------
 %% cowboy_rest callbacks
@@ -90,7 +99,7 @@ handle_post(_Deserializer, Req, State) ->
             case parse_data(Server, Data) of
                 {ok, ProjectId} ->
                     Req4 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}],
-                        <<"done! project_id:", ProjectId/binady>>, Req3),
+                        <<"done! project_id:", ProjectId/binary>>, Req3),
                     {halt, Req4, State};
                 R ->
                     Req4 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}],
@@ -154,10 +163,18 @@ proplist_to_job(Props) ->
     L = [job | List],
     list_to_tuple(L).
 
+proplist_to_camera(Props) ->
+    C = proplists:get_value(<<"camera">>, Props),
+    List = lists:map(fun(X) ->
+        proplists:get_value(atom_to_binary(X, utf8), C)
+    end, record_info(fields, camera)),
+    L = [camera | List],
+    list_to_tuple(L).
 
 parse_data(Server, D) ->
     case create_project(Server, proplist_to_project(D)) of
         {ok, ProjectId} ->
+            add_camera(Server, ProjectId, proplist_to_camera(D)),
             R = lists:map(fun(X) ->
                 case create_job(Server, proplist_to_job(X), ProjectId) of
                     ok ->
@@ -198,6 +215,17 @@ create_project(Server, Project) ->
             {error, {create_user, _R}}
     end.
 
+add_camera(Server, ProjectId, Camera) ->
+    Query = [<<"insert into camera(project_id,ip,port,username,password,description) values(">>, ProjectId, <<",'">>,
+    Camera#camera.ip, <<"','">>, Camera#camera.port, <<"','">>, Camera#camera.username, <<"','">>,
+        Camera#camera.password, <<"','">>, Camera#camera.description, <<"');">>],
+    case ejabberd_odbc:sql_query(Server, Query) of
+        {updated, 1} ->
+            ok;
+        _R ->
+            lager:error(_R),
+            {error, _R}
+    end.
 
 create_user(Server, Phone) ->
     Query = [<<"select username from users where cellphone ='">>, Phone, <<"';">>],
