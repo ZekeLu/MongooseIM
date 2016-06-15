@@ -680,7 +680,7 @@ send_msg(Phone, MessageTemplateID, Parameters) ->
 
     Result = httpc:request(post, {URL, Header, "application/json;charset=utf-8", Body}, [], []),
     case Result of
-        {ok, {{_, 200, "OK"}}, _ResponseHeader, ResponseBody} ->
+        {ok, {{_, 200, "OK"}, _ResponseHeader, ResponseBody}} ->
             StatusCode = string:substr(ResponseBody, string:str(ResponseBody, "statusCode") + 13, 6),
             parse_sms_statuscode(StatusCode);
         Error ->
