@@ -234,13 +234,16 @@ message_substring(Content) ->
             Content
     end.
 
--spec translate(Lang :: ejabberd:lang(), Text :: binary()) -> binary().
+-spec translate(Lang :: ejabberd:lang(), Text :: string()) -> binary().
+translate(<<>>, Text) ->
+    translate(<<"zh">>, Text);
 translate(Lang, Text) ->
-    iolist_to_binary(translate:translate(Lang, Text)).
+    iolist_to_binary(translate:translate(Lang, list_to_binary(Text))).
 
 -spec translate(Lang :: ejabberd:lang(), Text :: binary(), Replace :: list()) -> binary().
 translate(Lang, Text, Replace) ->
-    iolist_to_binary(translate:translate(Lang, Text, Replace)).
+    T = translate:translate(Lang, list_to_binary(Text)),
+    iolist_to_binary(io_lib:format(binary_to_list(T), Replace)).
 
 get_host_server() ->
     case ejabberd_config:get_global_option(hosts) of

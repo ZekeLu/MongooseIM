@@ -28,7 +28,7 @@
 -author('alexey@process-one.net').
 
 -export([start/0,
-         translate/2]).
+    translate/2]).
 
 -include("ejabberd.hrl").
 
@@ -54,7 +54,7 @@ translate(Lang, Msg) ->
 %% Private
 %%
 
--spec lang_files_directory() ->  file:filename().
+-spec lang_files_directory() -> file:filename().
 lang_files_directory() ->
     case os:getenv("EJABBERD_MSGS_PATH") of
         false ->
@@ -78,9 +78,9 @@ load_translations_from_dir(Dir) ->
 -spec load_translation_files(file:filename(), [file:filename()]) -> ok.
 load_translation_files(Dir, MsgFiles) ->
     lists:foreach(fun(Filename) ->
-                          Lang = lang_from_file_name(Filename),
-                          load_file(Lang, Dir ++ "/" ++ Filename)
-                  end, MsgFiles).
+        Lang = lang_from_file_name(Filename),
+        load_file(Lang, Dir ++ "/" ++ Filename)
+    end, MsgFiles).
 
 -spec lang_from_file_name(file:filename()) -> string().
 lang_from_file_name(Filename) ->
@@ -96,14 +96,14 @@ load_file(Lang, File) ->
     case file:consult(File) of
         {ok, Terms} ->
             lists:foreach(fun({Orig, Trans}) ->
-                                  insert_translation(BLang,
-                                                     unicode:characters_to_binary(Orig),
-                                                     unicode:characters_to_binary(Trans))
-                          end, Terms);
-        %% Code copied from ejabberd_config.erl
+                insert_translation(BLang,
+                    unicode:characters_to_binary(Orig),
+                    unicode:characters_to_binary(Trans))
+            end, Terms);
+    %% Code copied from ejabberd_config.erl
         {error, {_LineNumber, erl_parse, _ParseMessage} = Reason} ->
             ExitText = lists:flatten(File ++ " approximately in the line "
-                                     ++ file:format_error(Reason)),
+                ++ file:format_error(Reason)),
             ?ERROR_MSG("Problem loading translation file ~n~s", [ExitText]),
             exit(ExitText);
         {error, Reason} ->
@@ -118,7 +118,7 @@ insert_translation(Lang, Msg, <<"">>) ->
 insert_translation(Lang, Msg, Trans) ->
     ets:insert(translations, {{Lang, Msg}, Trans}).
 
--spec get_default_server_lang_translation(binary()) ->  binary().
+-spec get_default_server_lang_translation(binary()) -> binary().
 get_default_server_lang_translation(Msg) ->
     case get_translation(default_server_lang(), Msg) of
         {ok, DefaultTrans} -> DefaultTrans;
@@ -154,10 +154,15 @@ short_lang(LLang) ->
 default_server_lang() ->
     case ?MYLANG of
         undefined -> <<"en">>;
-        <<"en">> ->  <<"en">>;
+        <<"en">> -> <<"en">>;
         Lang -> Lang
     end.
 
 -spec to_lower(binary()) -> binary().
 to_lower(Bin) ->
-    list_to_binary(string:to_lower(binary_to_list(Bin))).
+    A = case is_binary(Bin) of
+            true -> Bin;
+            false ->
+                list_to_binary(Bin)
+        end,
+    list_to_binary(string:to_lower(binary_to_list(A))).
