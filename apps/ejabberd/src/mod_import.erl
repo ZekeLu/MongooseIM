@@ -33,7 +33,7 @@
     department :: string(),
     department_level :: integer(),
     department_id :: integer(),
-    users :: [string()]
+    users :: [{string(), string()}]
 }).
 
 -record(camera, {
@@ -116,7 +116,8 @@ mock_data() ->
         {<<"project">>,
             [
                 {<<"name">>, <<"test_project">>},
-                {<<"admin">>, <<"+861340000000">>},
+                {<<"admin">>, [{<<"phone">>,<<"+8613411111111">>},
+                    {<<"name">>,<<"test_name">>}]},
                 {<<"city">>, <<"111111">>},
                 {<<"background">>, <<"adfadfadfdadfadsfadfadf">>},
                 {<<"work_url">>, <<"adfasdfadfadfadfadfadfadfadfa">>}
@@ -132,7 +133,8 @@ mock_data() ->
                     {<<"department">>, <<"depart_name">>},
                     {<<"department_level">>, 1},
                     {<<"department_id">>, 1},
-                    {<<"users">>, [<<"+8613411111111">>, <<"+8613422222222">>]}
+                    {<<"users">>, [{<<"phone">>,<<"+8613411111111">>},
+                        {<<"name">>,<<"test_name">>}]}
                 ],
                 [
                     {<<"name">>, <<"test_job2">>},
@@ -142,7 +144,8 @@ mock_data() ->
                     {<<"department">>, <<"depart_name2">>},
                     {<<"department_level">>, 2},
                     {<<"department_id">>, 2},
-                    {<<"users">>, [<<"+8613433333333">>, <<"+8613444444444">>]}
+                    {<<"users">>, [{<<"phone">>,<<"+8613411111111">>},
+                        {<<"name">>,<<"test_name">>}]}
                 ]
             ]
         }
@@ -227,12 +230,14 @@ add_camera(Server, ProjectId, Camera) ->
             {error, _R}
     end.
 
-create_user(Server, Phone) ->
+create_user(Server, Props) ->
+    Phone = proplists:get_value(<<"phone">>, Props),
+    Name = proplists:get_value(<<"name">>, Props),
     Query = [<<"select username from users where cellphone ='">>, Phone, <<"';">>],
     case ejabberd_odbc:sql_query(Server, Query) of
         {selected, _, []} ->
             Jid = jlib:generate_uuid(),
-            case ejabberd_auth:aft_try_register(Jid, Server, Phone, Phone) of
+            case ejabberd_auth:aft_try_register(Jid, Server, Phone, Name) of
                 {atomic, ok} ->
                     <<_:8/binary, Pass/binary>> = Phone,
                     case ejabberd_auth:set_password(Jid, Server, Pass) of
