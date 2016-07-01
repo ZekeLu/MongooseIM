@@ -1,6 +1,67 @@
 %%==============================================================================
-%% Copyright China AFT by sharp.
+%% 1. import project and users, data structure
+%%
+%%     [
+%%         {<<"project">>,
+%%             [
+%%                 {<<"name">>, <<"test_project">>},
+%%                 {<<"admin">>, [{<<"phone">>, <<"+8613411111111">>},
+%%                     {<<"name">>, <<"test_name">>}]},
+%%                 {<<"city">>, <<"111111">>},
+%%                 {<<"background">>, <<"adfadfadfdadfadsfadfadf">>},
+%%                 {<<"work_url">>, <<"adfasdfadfadfadfadfadfadfadfa">>}
+%%             ]
+%%         },
+%%         {<<"jobs">>,
+%%             [
+%%                 [
+%%                     {<<"name">>, <<"test_job1">>},
+%%                     {<<"lft">>, 1},
+%%                     {<<"rgt">>, 16},
+%%                     {<<"depth">>, 1},
+%%                     {<<"department">>, <<"depart_name">>},
+%%                     {<<"department_level">>, 1},
+%%                     {<<"department_id">>, 1},
+%%                     {<<"users">>, [{<<"phone">>, <<"+8613411111111">>},
+%%                         {<<"name">>, <<"test_name">>}]}
+%%                 ],
+%%                 [
+%%                     {<<"name">>, <<"test_job2">>},
+%%                     {<<"lft">>, 2},
+%%                     {<<"rgt">>, 15},
+%%                     {<<"depth">>, 1},
+%%                     {<<"department">>, <<"depart_name2">>},
+%%                     {<<"department_level">>, 2},
+%%                     {<<"department_id">>, 2},
+%%                     {<<"users">>, [{<<"phone">>, <<"+8613411111111">>},
+%%                         {<<"name">>, <<"test_name">>}]}
+%%                 ]
+%%             ]
+%%         }
+%%     ].
+%% ---------------------------------------------------------------------
+%% 2. append user to project, data structure like this
+%% [{
+%%     "project_id":"1",
+%%     "organization": "143",
+%%     "user":
+%%     {
+%%         "name": "test",
+%%         "phone": "+8613411111111"
+%%     }
+%% },
+%% {
+%%     "project_id":"1",
+%%     "organization": "143",
+%%     "user":
+%%     {
+%%         "name": "test",
+%%         "phone": "+8613411111111"
+%%     }
+%% }]
+%%
 %%==============================================================================
+
 -module(mod_import).
 
 %% cowboy_rest callbacks
@@ -31,9 +92,12 @@
     depth :: integer(),
     project :: integer(),
     department :: string(),
+
+
+
     department_level :: integer(),
     department_id :: integer(),
-    users :: [{string(), string()}]
+    users :: list()
 }).
 
 -record(camera, {
@@ -94,62 +158,36 @@ handle_post(_Deserializer, Req, State) ->
     Token = list_to_binary(Secret),
     case cowboy_req:parse_header(<<"token">>, Req1) of
         {_, Token, Req2} ->
-            {ok, Body, Req3} = cowboy_req:body(Req2),
-            Data = jsx:decode(Body),
-            case parse_data(Server, Data) of
-                {ok, ProjectId} ->
-                    Req4 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}],
-                        <<"done! project_id:", ProjectId/binary>>, Req3),
-                    {halt, Req4, State};
-                R ->
-                    Req4 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}],
-                        term_to_binary(R), Req3),
-                    {halt, Req4, State}
+            case cowboy_req:parse_header(<<"is_append">>, Req2) of
+                {_, <<"1">>, Req3} ->
+                    {ok, Body, Req4} = cowboy_req:body(Req3),
+                    Data = jsx:decode(Body),
+                    lists:foreach(fun(X) ->
+                        append_to_project(Server, X)
+                    end, Data),
+                    Req5 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}],
+                        <<"done!">>, Req4),
+                    {halt, Req5, State};
+                {_, _, Req4} ->
+                    {ok, Body, Req5} = cowboy_req:body(Req4),
+                    Data = jsx:decode(Body),
+                    case parse_data(Server, Data) of
+                        {ok, ProjectId} ->
+                            Req6 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}],
+                                <<"done! project_id:", ProjectId/binary>>, Req5),
+                            {halt, Req6, State};
+                        R ->
+                            Req6 = cowboy_req:reply(<<"200">>, [{<<"content-type">>, <<"text/plain">>}],
+                                term_to_binary(R), Req5),
+                            {halt, Req6, State}
+                    end
             end;
         _R ->
             Req2 = cowboy_req:reply(<<"400">>, [{<<"content-type">>, <<"text/plain">>}], <<"not valid">>, Req1),
             {halt, Req2, State}
     end.
 
-mock_data() ->
-    [
-        {<<"project">>,
-            [
-                {<<"name">>, <<"test_project">>},
-                {<<"admin">>, [{<<"phone">>,<<"+8613411111111">>},
-                    {<<"name">>,<<"test_name">>}]},
-                {<<"city">>, <<"111111">>},
-                {<<"background">>, <<"adfadfadfdadfadsfadfadf">>},
-                {<<"work_url">>, <<"adfasdfadfadfadfadfadfadfadfa">>}
-            ]
-        },
-        {<<"jobs">>,
-            [
-                [
-                    {<<"name">>, <<"test_job1">>},
-                    {<<"lft">>, 1},
-                    {<<"rgt">>, 16},
-                    {<<"depth">>, 1},
-                    {<<"department">>, <<"depart_name">>},
-                    {<<"department_level">>, 1},
-                    {<<"department_id">>, 1},
-                    {<<"users">>, [{<<"phone">>,<<"+8613411111111">>},
-                        {<<"name">>,<<"test_name">>}]}
-                ],
-                [
-                    {<<"name">>, <<"test_job2">>},
-                    {<<"lft">>, 2},
-                    {<<"rgt">>, 15},
-                    {<<"depth">>, 1},
-                    {<<"department">>, <<"depart_name2">>},
-                    {<<"department_level">>, 2},
-                    {<<"department_id">>, 2},
-                    {<<"users">>, [{<<"phone">>,<<"+8613411111111">>},
-                        {<<"name">>,<<"test_name">>}]}
-                ]
-            ]
-        }
-    ].
+
 
 proplist_to_project(Props) ->
     P = proplists:get_value(<<"project">>, Props),
@@ -220,7 +258,7 @@ create_project(Server, Project) ->
 
 add_camera(Server, ProjectId, Camera) ->
     Query = [<<"insert into camera(project_id,ip,port,username,password,description) values(">>, ProjectId, <<",'">>,
-    Camera#camera.ip, <<"','">>, Camera#camera.port, <<"','">>, Camera#camera.username, <<"','">>,
+        Camera#camera.ip, <<"','">>, Camera#camera.port, <<"','">>, Camera#camera.username, <<"','">>,
         Camera#camera.password, <<"','">>, Camera#camera.description, <<"');">>],
     case ejabberd_odbc:sql_query(Server, Query) of
         {updated, 1} ->
@@ -288,4 +326,17 @@ create_job(Server, Job, ProjectId) ->
                     lager:error(">>>create failed: ~p~n", [_R]),
                     {error, _R}
             end
+    end.
+
+append_to_project(Server, Append) ->
+    U = proplists:get_value(<<"user">>, Append),
+    OrgId = proplists:get_value(<<"organization">>, Append),
+    {ok, Jid} = create_user(Server, U),
+    Query = [<<"insert into organization_user(organization,jid) values(">>, OrgId, <<",'">>,
+        <<Jid/binary, $@, Server/binary>>, <<"');">>],
+    case ejabberd_odbc:sql_query(Server, Query) of
+        {updated, _} ->
+            ok;
+        _R ->
+            {error, _R}
     end.
